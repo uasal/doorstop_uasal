@@ -389,7 +389,7 @@ class LaTeXPublisher(BasePublisher):
                 output_line = line.replace("<br> <br>", "\\par ").replace("<br><br>", "\\par ").replace("<br>", "\\par")
                 yield output_line.replace("^", "\\^").replace("_", "\\_")
             else:
-                output_line = line.replace("^", "\\^").replace("_", "\\_")
+                output_line = line.replace("^", "\\^").replace("_", "\\_").replace("%", "\\%")
                 yield output_line
 
 
