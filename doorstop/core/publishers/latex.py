@@ -357,39 +357,34 @@ class LaTeXPublisher(BasePublisher):
     def _format_href_text(self, text):
         """Fix the href text related issues being seen."""
         output_line = ""
+        link_present = False
         for i, line in enumerate(text):
-            if "](" in line:
+            output_line = line
+            if "](" in output_line:
+                link_present = True
                 # Check if there are text that is using brackets but not a href reference
                 # TODO: adjust this def to be more flexible 
-                href_count = line.count("](")
-                bracket_count = line.count("[")
-                log.info(f'Number of hrefs detacted',href_count)
-                log.debug(f'Number of [ in line',bracket_count)
-                if href_count != bracket_count:
-                    warning = "Get rid of text that had `[]s` and are not hrefs in requirement details."
-                    log.warning(warning)
-                    yield warning
+                while "](" in output_line:
+                    split_0 = output_line.split("](",1)
+                    split_1 = str(split_0[0]).split("[",1)
+                    prefix_href = str(split_1[1])
+                    begin_text = (str(split_1[0])).replace("_","\\_")
+                    split_2 = (str(split_0[1])).split(")",1)
+                    url_href = str(split_2[0])
+                    end_text = str(split_2[1])
+                    end_text = end_text.replace("_","\\_")
+                    href = "\\href{" + url_href + "}{" + prefix_href + "}"
+                    output_line = begin_text + href + end_text
+            if "<br>" in output_line:
+                output_line = output_line.replace("<br> <br>", "\\par ").replace("<br><br>", "\\par ").replace("<br>", "\\par")
+                if link_present == True:
+                    yield output_line.replace("^", "\\^").replace("_", "\\_").replace("%", "\\%")
                 else:
-                    split_line_text = line.split("[")
-                    # Text before the link
-                    text = str(split_line_text[0])
-                    text = text.replace("_", "\\_")
-                    # Rest of line / unformatted with no text part
-                    remainder = str(split_line_text[1])
-                    split_link_prefix = remainder.split("](")
-                    split_link = str(split_link_prefix[1]).split(")")
-                    # Markdown URL prefix
-                    url_prefix = "{" + str(split_link_prefix[0]) + "}"
-                    link = "{" + str(split_link[0]) + "}"
-                    url_prefix = url_prefix.replace("_", "\\_")
-                    rest_text = str(split_link[1]).replace("_", "\\_")
-                    output_line = text + "\\href" + link + url_prefix + rest_text
-                    yield output_line
-            if "<br>" in line:
-                output_line = line.replace("<br> <br>", "\\par ").replace("<br><br>", "\\par ").replace("<br>", "\\par")
-                yield output_line.replace("^", "\\^").replace("_", "\\_")
+                    yield output_line.replace("^", "\\^").replace("%", "\\%")
+            elif link_present == False:
+                output_line = output_line.replace("^", "\\^").replace("_", "\\_").replace("%", "\\%")
+                yield output_line
             else:
-                output_line = line.replace("^", "\\^").replace("_", "\\_").replace("%", "\\%")
                 yield output_line
 
 

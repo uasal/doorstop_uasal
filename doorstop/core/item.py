@@ -108,6 +108,7 @@ class Item(BaseFileObject):  # pylint: disable=R0902
     DEFAULT_TEXT = Text()
     DEFAULT_SHORT_NAME = Text()
     DEFAULT_NOTES = Text()
+    DEFAULT_RATIONALE = Text()
     DEFAULT_REF = ""
     DEFAULT_HEADER = Text()
     DEFAULT_ITEMFORMAT = "yaml"
@@ -152,6 +153,7 @@ class Item(BaseFileObject):  # pylint: disable=R0902
         self._data["derived"] = Item.DEFAULT_DERIVED  # type: ignore
         self._data["reviewed"] = Item.DEFAULT_REVIEWED  # type: ignore
         self._data["short name"] = Item.DEFAULT_SHORT_NAME # type: ignore
+        self._data["rationale"] = Item.DEFAULT_RATIONALE # type: ignore
         self._data["text"] = Item.DEFAULT_TEXT
         self._data["notes"] = Item.DEFAULT_NOTES
         self._data["ref"] = Item.DEFAULT_REF
@@ -274,6 +276,8 @@ class Item(BaseFileObject):  # pylint: disable=R0902
             elif key == "phase":
                 value = Text(value)
             elif key == "artifact":
+                value = Text(value)
+            elif key == "rationale":
                 value = Text(value)
             elif key == "verification methods":
                 value = Text(value)
@@ -408,6 +412,8 @@ class Item(BaseFileObject):  # pylint: disable=R0902
                 value = value.yaml  # type: ignore
             elif key == "artifact":
                 value = value.yaml  # type: ignore
+            elif key == "rationale":
+                value = value.yaml  # type: ignore                
             elif key == "verification methods":
                 value = _convert_to_yaml(0, len(key) + 2, value)  # type: ignore
             elif key == "verification plan":
@@ -576,6 +582,18 @@ class Item(BaseFileObject):  # pylint: disable=R0902
     def text(self, value):
         """Set the item's text."""
         self._data["text"] = Text(value)
+
+    @property  # type: ignore
+    @auto_load
+    def rationale(self):
+        """Get the item's rationale."""
+        return self._data["rationale"]
+
+    @rationale.setter  # type: ignore
+    @auto_save
+    def rationale(self, value):
+        """Set the item's rationale."""
+        self._data["rationale"] = Text(value)
 
     @property  # type: ignore
     @auto_load
