@@ -367,7 +367,7 @@ class LaTeXPublisher(BasePublisher):
                 while "](" in output_line:
                     split_0 = output_line.split("](",1)
                     split_1 = str(split_0[0]).split("[",1)
-                    prefix_href = str(split_1[1])
+                    prefix_href = (str(split_1[1])).replace("_","\\_")
                     begin_text = (str(split_1[0])).replace("_","\\_")
                     split_2 = (str(split_0[1])).split(")",1)
                     url_href = str(split_2[0])
