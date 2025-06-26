@@ -378,14 +378,14 @@ class LaTeXPublisher(BasePublisher):
             if "<br>" in output_line:
                 output_line = output_line.replace("<br> <br>", "\\par ").replace("<br><br>", "\\par ").replace("<br>", "\\par")
                 if link_present == True:
-                    yield output_line.replace("^", "\\^").replace("_", "\\_").replace("%", "\\%")
-                else:
                     yield output_line.replace("^", "\\^").replace("%", "\\%")
+                else:
+                    yield output_line.replace("^", "\\^").replace("_", "\\_").replace("%", "\\%")
             elif link_present == False:
                 output_line = output_line.replace("^", "\\^").replace("_", "\\_").replace("%", "\\%")
                 yield output_line
             else:
-                yield output_line
+                yield output_line.replace("^", "\\^").replace("%", "\\%")
 
 
     def _format_latex_text(self, text):
