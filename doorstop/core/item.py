@@ -112,7 +112,7 @@ class Item(BaseFileObject):  # pylint: disable=R0902
     DEFAULT_REF = ""
     DEFAULT_HEADER = Text()
     DEFAULT_ITEMFORMAT = "yaml"
-    DEFAULT_VERIFICATION_METHODS = Text()
+    DEFAULT_VERIFICATION_METHOD = Text()
     DEFAULT_VERIFICATION_PLAN = Text()
     DEFAULT_PHASE = Text()
     DEFAULT_STATUS = Text()
@@ -160,10 +160,10 @@ class Item(BaseFileObject):  # pylint: disable=R0902
         self._data["text"] = Item.DEFAULT_TEXT
         self._data["notes"] = Item.DEFAULT_NOTES
         self._data["ref"] = Item.DEFAULT_REF
-        self._data["verification methods"] = Item.DEFAULT_VERIFICATION_METHODS # type: ignore
+        self._data["verification method"] = Item.DEFAULT_VERIFICATION_METHOD # type: ignore
         self._data["verification plan"] = Item.DEFAULT_VERIFICATION_PLAN # type: ignore
         self._data["verification status"] = Item.DEFAULT_VERIFICATION_STATUS # type: ignore
-        self._date["category"] = Item.DEFAULT_CATEGORY # type: ignore
+        self._data["category"] = Item.DEFAULT_CATEGORY # type: ignore
         self._data["phase"] = Item.DEFAULT_PHASE # type: ignore
         self._data["status"] = Item.DEFAULT_STATUS # type: ignore
         self._data["artifact"] = Item.DEFAULT_ARTIFACT # type: ignore
@@ -622,15 +622,15 @@ class Item(BaseFileObject):  # pylint: disable=R0902
 
     @property  # type: ignore
     @auto_load
-    def verification_methods(self):
-        """Get the requirement verification methods"""
-        return self._data["verification methods"]
+    def verification_method(self):
+        """Get the requirement verification method"""
+        return self._data["verification method"]
 
-    @verification_methods.setter  # type: ignore
+    @verification_method.setter  # type: ignore
     @auto_save
-    def verification_methods(self, value):
-        """Set the requirement verification methods"""
-        self._data["verification methods"] = Text(value)
+    def verification_method(self, value):
+        """Set the requirement verification method"""
+        self._data["verification method"] = Text(value)
 
     @property  # type: ignore
     @auto_load
