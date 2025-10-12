@@ -112,13 +112,14 @@ class Item(BaseFileObject):  # pylint: disable=R0902
     DEFAULT_REF = ""
     DEFAULT_HEADER = Text()
     DEFAULT_ITEMFORMAT = "yaml"
-    DEFAULT_VERIFICATION_METHOD = Text()
+    DEFAULT_VERIFICATION_METHODS = Text()
     DEFAULT_VERIFICATION_PLAN = Text()
     DEFAULT_PHASE = Text()
     DEFAULT_STATUS = Text()
     DEFAULT_ARTIFACT = Text()
     DEFAULT_CATEGORY = Text()
     DEFAULT_VERIFICATION_STATUS = Text()
+    DEFAULT_REQTYPE = Text()
 
 
     def __init__(self, document, path, root=os.getcwd(), **kwargs):
@@ -160,9 +161,10 @@ class Item(BaseFileObject):  # pylint: disable=R0902
         self._data["text"] = Item.DEFAULT_TEXT
         self._data["notes"] = Item.DEFAULT_NOTES
         self._data["ref"] = Item.DEFAULT_REF
-        self._data["verification method"] = Item.DEFAULT_VERIFICATION_METHOD # type: ignore
+        self._data["verification methods"] = Item.DEFAULT_VERIFICATION_METHODS # type: ignore
         self._data["verification plan"] = Item.DEFAULT_VERIFICATION_PLAN # type: ignore
         self._data["verification status"] = Item.DEFAULT_VERIFICATION_STATUS # type: ignore
+        self._data["k/d"] = Item.DEFAULT_REQTYPE # type: ignore
         self._data["category"] = Item.DEFAULT_CATEGORY # type: ignore
         self._data["phase"] = Item.DEFAULT_PHASE # type: ignore
         self._data["status"] = Item.DEFAULT_STATUS # type: ignore
@@ -284,13 +286,15 @@ class Item(BaseFileObject):  # pylint: disable=R0902
                 value = Text(value)
             elif key == "rationale":
                 value = Text(value)
-            elif key == "verification methods":
+            elif key == "verification methods" or key == "verification method":
                 value = Text(value)
             elif key == "verification plan":
                 value = Text(value)
             elif key == "verification status":
                 value = Text(value)
             elif key == "category":
+                value == Text(value)
+            elif key == "k/d" or key == "key/driving":
                 value == Text(value)
             elif key == "ref":
                 value = value.strip()
@@ -423,7 +427,9 @@ class Item(BaseFileObject):  # pylint: disable=R0902
                 value = value.yaml  # type: ignore
             elif key == "rationale":
                 value = value.yaml  # type: ignore                
-            elif key == "verification methods":
+            elif key == "verification methods" or key == "verification method":
+                value = _convert_to_yaml(0, len(key) + 2, value)  # type: ignore
+            elif key == "key/driving" or key == "k/d":
                 value = _convert_to_yaml(0, len(key) + 2, value)  # type: ignore
             elif key == "verification plan":
                 value = _convert_to_yaml(0, len(key) + 2, value)  # type: ignore
@@ -622,15 +628,27 @@ class Item(BaseFileObject):  # pylint: disable=R0902
 
     @property  # type: ignore
     @auto_load
-    def verification_method(self):
+    def verification_methods(self):
         """Get the requirement verification method"""
-        return self._data["verification method"]
+        return self._data["verification methods"]
 
-    @verification_method.setter  # type: ignore
+    @verification_methods.setter  # type: ignore
     @auto_save
-    def verification_method(self, value):
+    def verification_methods(self, value):
         """Set the requirement verification method"""
-        self._data["verification method"] = Text(value)
+        self._data["verification methods"] = Text(value)
+
+    @property  # type: ignore
+    @auto_load
+    def req_type(self):
+        """Get if requirement is key or driving"""
+        return self._data["k/d"]
+
+    @req_type.setter  # type: ignore
+    @auto_save
+    def req_type(self, value):
+        """Set if req is key or driving"""
+        self._data["k/d"] = Text(value)
 
     @property  # type: ignore
     @auto_load
@@ -683,13 +701,13 @@ class Item(BaseFileObject):  # pylint: disable=R0902
     @property  # type: ignore
     @auto_load
     def status(self):
-        """Get the requirements verification status."""
+        """Get the requirements status."""
         return self._data["status"]
 
     @status.setter  # type: ignore
     @auto_save
     def status(self, value):
-        """Set the requirements verification status."""
+        """Set the requirements status."""
         self._data["status"] = Text(value)
 
     @property  # type: ignore
