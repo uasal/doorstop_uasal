@@ -931,8 +931,8 @@ class LaTeXPublisher(BasePublisher):
         if "rvm" in template_data:
             wrapper = _add_comment(wrapper, "Add rvm matrix.")
             wrapper.append("\\begin{landscape}")
-            wrapper.append("\\section{Payload Requirements Verification Matrix}")
-            wrapper.append("\\csvreader[longtable=LLLLLL,table head=\\caption{Payload Requirement Verification Matrix}\\\\")
+            wrapper.append("\\section{Requirements Verification Matrix}")
+            wrapper.append("\\csvreader[longtable=LLLLLL,table head=\\caption{Requirement Verification Matrix}\\\\")
             wrapper.append("\\toprule\\bfseries UID & \\bfseries Name & \\bfseries Method & \\bfseries Verification Plan & \\bfseries Status \\\ \\midrule\\endhead")
             wrapper.append("\\bottomrule\\endfoot,")
             wrapper.append("late after line=\\\,")
