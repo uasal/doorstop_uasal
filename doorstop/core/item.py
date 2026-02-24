@@ -108,6 +108,7 @@ class Item(BaseFileObject):  # pylint: disable=R0902
     DEFAULT_TEXT = Text()
     DEFAULT_SHORT_NAME = Text()
     DEFAULT_NOTES = Text()
+    DEFAULT_RATIONALE = Text()
     DEFAULT_REF = ""
     DEFAULT_HEADER = Text()
     DEFAULT_ITEMFORMAT = "yaml"
@@ -116,6 +117,10 @@ class Item(BaseFileObject):  # pylint: disable=R0902
     DEFAULT_PHASE = Text()
     DEFAULT_STATUS = Text()
     DEFAULT_ARTIFACT = Text()
+    DEFAULT_CATEGORY = Text()
+    DEFAULT_VERIFICATION_STATUS = Text()
+    DEFAULT_REQTYPE = Text()
+
 
     def __init__(self, document, path, root=os.getcwd(), **kwargs):
         """Initialize an item from an existing file.
@@ -152,11 +157,15 @@ class Item(BaseFileObject):  # pylint: disable=R0902
         self._data["derived"] = Item.DEFAULT_DERIVED  # type: ignore
         self._data["reviewed"] = Item.DEFAULT_REVIEWED  # type: ignore
         self._data["short name"] = Item.DEFAULT_SHORT_NAME # type: ignore
+        self._data["rationale"] = Item.DEFAULT_RATIONALE # type: ignore
         self._data["text"] = Item.DEFAULT_TEXT
         self._data["notes"] = Item.DEFAULT_NOTES
         self._data["ref"] = Item.DEFAULT_REF
         self._data["verification methods"] = Item.DEFAULT_VERIFICATION_METHODS # type: ignore
         self._data["verification plan"] = Item.DEFAULT_VERIFICATION_PLAN # type: ignore
+        self._data["verification status"] = Item.DEFAULT_VERIFICATION_STATUS # type: ignore
+        self._data["k/d"] = Item.DEFAULT_REQTYPE # type: ignore
+        self._data["category"] = Item.DEFAULT_CATEGORY # type: ignore
         self._data["phase"] = Item.DEFAULT_PHASE # type: ignore
         self._data["status"] = Item.DEFAULT_STATUS # type: ignore
         self._data["artifact"] = Item.DEFAULT_ARTIFACT # type: ignore
@@ -275,10 +284,18 @@ class Item(BaseFileObject):  # pylint: disable=R0902
                 value = Text(value)
             elif key == "artifact":
                 value = Text(value)
-            elif key == "verification methods":
+            elif key == "rationale":
+                value = Text(value)
+            elif key == "verification methods" or key == "verification method":
                 value = Text(value)
             elif key == "verification plan":
                 value = Text(value)
+            elif key == "verification status":
+                value = Text(value)
+            elif key == "category":
+                value == Text(value)
+            elif key == "k/d" or key == "key/driving":
+                value == Text(value)
             elif key == "ref":
                 value = value.strip()
             elif key == "references":
@@ -408,9 +425,17 @@ class Item(BaseFileObject):  # pylint: disable=R0902
                 value = value.yaml  # type: ignore
             elif key == "artifact":
                 value = value.yaml  # type: ignore
-            elif key == "verification methods":
+            elif key == "rationale":
+                value = value.yaml  # type: ignore                
+            elif key == "verification methods" or key == "verification method":
+                value = _convert_to_yaml(0, len(key) + 2, value)  # type: ignore
+            elif key == "key/driving" or key == "k/d":
                 value = _convert_to_yaml(0, len(key) + 2, value)  # type: ignore
             elif key == "verification plan":
+                value = _convert_to_yaml(0, len(key) + 2, value)  # type: ignore
+            elif key == "verification status":
+                value = _convert_to_yaml(0, len(key) + 2, value)  # type: ignore
+            elif key == "category":
                 value = _convert_to_yaml(0, len(key) + 2, value)  # type: ignore
             else:
                 value = _convert_to_yaml(0, len(key) + 2, value)
@@ -579,6 +604,18 @@ class Item(BaseFileObject):  # pylint: disable=R0902
 
     @property  # type: ignore
     @auto_load
+    def rationale(self):
+        """Get the item's rationale."""
+        return self._data["rationale"]
+
+    @rationale.setter  # type: ignore
+    @auto_save
+    def rationale(self, value):
+        """Set the item's rationale."""
+        self._data["rationale"] = Text(value)
+
+    @property  # type: ignore
+    @auto_load
     def notes(self):
         """Get the item's notes."""
         return self._data["notes"]
@@ -592,14 +629,26 @@ class Item(BaseFileObject):  # pylint: disable=R0902
     @property  # type: ignore
     @auto_load
     def verification_methods(self):
-        """Get the requirement verification methods"""
+        """Get the requirement verification method"""
         return self._data["verification methods"]
 
     @verification_methods.setter  # type: ignore
     @auto_save
     def verification_methods(self, value):
-        """Set the requirement verification methods"""
+        """Set the requirement verification method"""
         self._data["verification methods"] = Text(value)
+
+    @property  # type: ignore
+    @auto_load
+    def req_type(self):
+        """Get if requirement is key or driving"""
+        return self._data["k/d"]
+
+    @req_type.setter  # type: ignore
+    @auto_save
+    def req_type(self, value):
+        """Set if req is key or driving"""
+        self._data["k/d"] = Text(value)
 
     @property  # type: ignore
     @auto_load
@@ -612,6 +661,30 @@ class Item(BaseFileObject):  # pylint: disable=R0902
     def verification_plan(self, value):
         """Set requirements verification plan"""
         self._data["verification plan"] = Text(value)
+
+    @property  # type: ignore
+    @auto_load
+    def verification_status(self):
+        """Get the requirement verification status"""
+        return self._data["verification status"]
+
+    @verification_status.setter  # type: ignore
+    @auto_save
+    def verification_status(self, value):
+        """Set the requirement verification status"""
+        self._data["verification status"] = Text(value)
+
+    @property  # type: ignore
+    @auto_load
+    def category(self):
+        """Get the requirement category"""
+        return self._data["category"]
+
+    @category.setter  # type: ignore
+    @auto_save
+    def category(self, value):
+        """Set the requirement category"""
+        self._data["category"] = Text(value)
 
     @property  # type: ignore
     @auto_load
@@ -628,13 +701,13 @@ class Item(BaseFileObject):  # pylint: disable=R0902
     @property  # type: ignore
     @auto_load
     def status(self):
-        """Get the requirements verification status."""
+        """Get the requirements status."""
         return self._data["status"]
 
     @status.setter  # type: ignore
     @auto_save
     def status(self, value):
-        """Set the requirements verification status."""
+        """Set the requirements status."""
         self._data["status"] = Text(value)
 
     @property  # type: ignore
