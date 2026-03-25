@@ -561,6 +561,7 @@ def records_to_doorstop_rows(
                 f"Record #{idx + 1} has no Legacy ID / uid.  "
                 f"Fields present: {list(normed.keys())}"
             )
+            print(f"Skipped: {msg}", file=sys.stderr)
             if validate:
                 log.error(msg)
                 raise SystemExit(1)
