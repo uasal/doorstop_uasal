@@ -551,33 +551,41 @@ def records_to_doorstop_rows(
     # -----------------------------------------------------------------------
     rows: List[List[str]] = []
     missing_uid_count = 0
-    project_id_fallback_count = 0
+    fallback_uid_count = 0
     links_count = 0
 
     for idx, normed in enumerate(normalised_records):
         uid = normed.get("uid", "").strip()
         if not uid:
-            # Try to fall back to Project ID before giving up.
-            project_id_val = normed.get("project_id", "").strip()
-            if project_id_val:
-                project_id_fallback_count += 1
+            # Try fallback sources in priority order before giving up:
+            #   1. project_id  2. id  3. global_id
+            fallback_source: str = ""
+            for candidate_key in ("project_id", "id", "global_id"):
+                candidate_val = normed.get(candidate_key, "").strip()
+                if candidate_val:
+                    fallback_source = candidate_key
+                    uid = candidate_val
+                    break
+
+            if uid:
+                fallback_uid_count += 1
                 log.info(
-                    "Record #%d has no Legacy ID; using Project ID '%s' as uid.",
+                    "Record #%d has no Legacy ID; using %s '%s' as uid.",
                     idx + 1,
-                    project_id_val,
+                    fallback_source,
+                    uid,
                 )
                 print(
                     f"Info: Record #{idx + 1} has no Legacy ID; "
-                    f"using Project ID '{project_id_val}' as uid.",
+                    f"using {fallback_source} '{uid}' as uid.",
                     file=sys.stderr,
                 )
-                uid = project_id_val
                 normed["uid"] = uid
             else:
                 missing_uid_count += 1
                 msg = (
-                    f"Record #{idx + 1} has no Legacy ID / uid.  "
-                    f"Fields present: {list(normed.keys())}"
+                    f"Record #{idx + 1} has no Legacy ID, project_id, id, or global_id.  "
+                    f"Record contents: {dict(normed)}"
                 )
                 print(f"Skipped: {msg}", file=sys.stderr)
                 if validate:
@@ -619,7 +627,7 @@ def records_to_doorstop_rows(
     print(
         f"Summary: parsed {total_parsed} requirement table(s); "
         f"{total_rows} row(s) written; "
-        f"{project_id_fallback_count} used Project ID as uid fallback; "
+        f"{fallback_uid_count} used fallback id as uid; "
         f"{missing_uid_count} skipped (missing UID); "
         f"{links_count} row(s) have parent links.",
         file=sys.stderr,
