@@ -34,6 +34,28 @@ The script:
   8. Validates that every requirement has a UID and reports a summary of
      parsing results to stderr.
 
+Date extraction sources (in priority order, highest first):
+  - Priority 1 (highest): Table row dates — per-requirement dates that appear
+    as rows inside the two-column requirement tables (e.g. a row with label
+    "Created" and a value cell containing the date string).  These take full
+    priority and are never overridden by lower-priority sources.
+  - Priority 2: Standalone text dates — date lines that appear outside the
+    requirement tables in the HTML body, e.g.::
+
+        Created: 02/09/2025 09:23:45 PM UTC
+        Updated: 03/23/2026 06:05:49 PM UTC
+
+    Supported labels: Created, Updated, Modified, Last Modified, Last Updated,
+    Date Created, Date Modified.
+  - Priority 3 (lowest): Office XML document properties — ISO 8601 dates
+    stored in the MHT ``<head>`` section as Office XML tags, e.g.::
+
+        <o:Created>2026-03-25T05:10:00Z</o:Created>
+        <o:LastSaved>2026-03-25T05:11:00Z</o:LastSaved>
+
+    These are document-level metadata and apply only when no higher-priority
+    date is available for a given requirement.
+
 Usage:
     python scripts/jama_mht_to_doorstop_csv.py input.mht -o output.csv
     python scripts/jama_mht_to_doorstop_csv.py input.mht -o output.csv --validate --verbose
@@ -159,6 +181,30 @@ PARENT_ID_RE = re.compile(r"[A-Za-z][\w]*-\d+")
 
 # Candidate charsets to try when decoding the base64 HTML body
 _HTML_CHARSETS = ["utf-16-le", "utf-16", "utf-8", "latin-1"]
+
+# Matches standalone date lines that appear *outside* requirement tables, e.g.:
+#   "Created: 02/09/2025 09:23:45 PM UTC"
+#   "Updated: 03/23/2026 06:05:49 PM UTC"
+# Group 1 = label, Group 2 = date value
+_STANDALONE_DATE_RE = re.compile(
+    r"^(?P<label>Created|Updated|Modified|Last\s+Modified|Last\s+Updated"
+    r"|Date\s+Created|Date\s+Modified)\s*:\s*(?P<value>.+)$",
+    re.IGNORECASE | re.MULTILINE,
+)
+
+# Matches Office XML document-property date tags in the MHT <head>, e.g.:
+#   <o:Created>2026-03-25T05:10:00Z</o:Created>
+_OFFICE_CREATED_RE = re.compile(
+    r"<o:Created>\s*(?P<value>[^<]+?)\s*</o:Created>",
+    re.IGNORECASE,
+)
+
+# Matches Office XML last-saved date tags in the MHT <head>, e.g.:
+#   <o:LastSaved>2026-03-25T05:11:00Z</o:LastSaved>
+_OFFICE_LAST_SAVED_RE = re.compile(
+    r"<o:LastSaved>\s*(?P<value>[^<]+?)\s*</o:LastSaved>",
+    re.IGNORECASE,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -399,6 +445,63 @@ def _find_base64_block(text: str) -> Optional[bytes]:
 # ---------------------------------------------------------------------------
 
 
+def _extract_office_dates(html_content: str) -> Dict[str, str]:
+    """Extract document-level dates from Office XML properties in *html_content*.
+
+    Searches for ``<o:Created>`` and ``<o:LastSaved>`` tags that JAMA/Word
+    embeds in the MHT ``<head>`` section and returns a dict with canonical
+    doorstop column names as keys.
+
+    :param html_content: full HTML string from the MHT file.
+    :returns: dict with zero, one, or two of the keys ``"created"`` and
+              ``"modified"``, mapping to the raw ISO 8601 date strings found.
+    """
+    result: Dict[str, str] = {}
+
+    m = _OFFICE_CREATED_RE.search(html_content)
+    if m:
+        result["created"] = m.group("value")
+        log.debug("Office XML: found created date: %s", result["created"])
+
+    m = _OFFICE_LAST_SAVED_RE.search(html_content)
+    if m:
+        result["modified"] = m.group("value")
+        log.debug("Office XML: found modified date: %s", result["modified"])
+
+    return result
+
+
+def _extract_standalone_dates(html_content: str) -> Dict[str, str]:
+    """Extract per-document dates from standalone date lines in *html_content*.
+
+    Searches for lines like ``Created: 02/09/2025 09:23:45 PM UTC`` or
+    ``Updated: 03/23/2026 06:05:49 PM UTC`` that appear outside the
+    requirement tables and maps their labels to canonical doorstop column
+    names via :data:`JAMA_TO_DOORSTOP`.
+
+    Only the first occurrence of each date type is kept.
+
+    :param html_content: full HTML string from the MHT file.
+    :returns: dict with zero, one, or two of the keys ``"created"`` and
+              ``"modified"``, mapping to the raw date strings found.
+    """
+    result: Dict[str, str] = {}
+
+    for m in _STANDALONE_DATE_RE.finditer(html_content):
+        label_norm = _normalise_column_name(m.group("label"))
+        canonical = JAMA_TO_DOORSTOP.get(label_norm)
+        if canonical in ("created", "modified") and canonical not in result:
+            result[canonical] = m.group("value").strip()
+            log.debug(
+                "Standalone date: label=%r → %s: %s",
+                m.group("label"),
+                canonical,
+                result[canonical],
+            )
+
+    return result
+
+
 def parse_tables(html_content: str) -> List[Dict[str, str]]:
     """Parse requirement tables from *html_content*.
 
@@ -409,7 +512,25 @@ def parse_tables(html_content: str) -> List[Dict[str, str]]:
 
     Tables that do not contain any known JAMA field label are silently
     skipped (they are likely header/footer or layout tables).
+
+    Date fields are filled from three sources in priority order (highest
+    first):
+
+    1. Table row dates — per-requirement dates from within the table.
+    2. Standalone text dates — e.g. ``Created: 02/09/2025 09:23:45 PM UTC``
+       found outside requirement tables.
+    3. Office XML document properties — ``<o:Created>`` / ``<o:LastSaved>``
+       tags in the MHT ``<head>`` section.
     """
+    # Collect fallback dates from lower-priority sources before parsing tables.
+    office_dates = _extract_office_dates(html_content)
+    standalone_dates = _extract_standalone_dates(html_content)
+
+    # Standalone dates take priority over Office XML dates.
+    fallback_dates: Dict[str, str] = {**office_dates, **standalone_dates}
+    if fallback_dates:
+        log.debug("Fallback dates available: %s", fallback_dates)
+
     parser = _TableParser()
     parser.feed(html_content)
     parser.close()
@@ -451,6 +572,24 @@ def parse_tables(html_content: str) -> List[Dict[str, str]]:
                 record[label] = value_raw
 
         if record and is_requirement:
+            # Inject fallback dates for any missing date fields.
+            # A date field is considered present if any JAMA spelling variant
+            # that maps to it already exists in the record.
+            for canonical_date_col in ("created", "modified"):
+                # Check whether any JAMA label variant for this column is
+                # already in the record.
+                has_date = any(
+                    JAMA_TO_DOORSTOP.get(key) == canonical_date_col
+                    for key in record
+                )
+                if not has_date and canonical_date_col in fallback_dates:
+                    record[canonical_date_col] = fallback_dates[canonical_date_col]
+                    log.debug(
+                        "Table %d: injected fallback %s = %r",
+                        table_idx,
+                        canonical_date_col,
+                        record[canonical_date_col],
+                    )
             records.append(record)
         elif record:
             log.debug(
