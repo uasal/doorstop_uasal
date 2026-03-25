@@ -101,27 +101,30 @@ DOORSTOP_DEFAULTS: Dict[str, str] = {
     "normative": "True",
 }
 
-# Mapping: normalised JAMA label → doorstop column name
+# Mapping: normalised (underscore) JAMA label → doorstop column name.
+# Keys are the result of _normalise_column_name() applied to the raw label.
 JAMA_TO_DOORSTOP: Dict[str, str] = {
-    "legacy id": "uid",
+    "legacy_id": "uid",
     "name": "header",
     "description": "text",
-    "project id": "project_id",
-    "global id": "global_id",
+    "project_id": "project_id",
+    "global_id": "global_id",
+    "additional_notes": "additional_notes",
 }
 
-# JAMA field names whose presence marks a table as a requirement table
+# JAMA field names (normalised to underscores) whose presence marks a table
+# as a requirement table rather than a layout/header table.
 JAMA_KNOWN_FIELDS = frozenset(
     {
-        "legacy id",
+        "legacy_id",
         "name",
         "description",
-        "project id",
-        "global id",
-        "additional notes",
+        "project_id",
+        "global_id",
+        "additional_notes",
         "status",
         "priority",
-        "item type",
+        "item_type",
         "category",
     }
 )
@@ -137,6 +140,28 @@ PARENT_ID_RE = re.compile(r"[A-Za-z][\w]*-\d+")
 
 # Candidate charsets to try when decoding the base64 HTML body
 _HTML_CHARSETS = ["utf-16-le", "utf-16", "utf-8", "latin-1"]
+
+
+# ---------------------------------------------------------------------------
+# Label normalisation helper  (used by parse_tables and records_to_doorstop_rows)
+# ---------------------------------------------------------------------------
+
+
+def _normalise_column_name(label: str) -> str:
+    """Convert a JAMA field label to a safe CSV column name.
+
+    Rules:
+    - Lowercase
+    - Replace runs of non-alphanumeric characters with a single underscore
+    - Strip leading/trailing underscores
+
+    Examples::
+
+        "Legacy ID"       → "legacy_id"
+        "Additional Notes" → "additional_notes"
+        "Item Type"       → "item_type"
+    """
+    return re.sub(r"[^a-z0-9]+", "_", label.lower()).strip("_")
 
 
 # ---------------------------------------------------------------------------
@@ -356,8 +381,9 @@ def parse_tables(html_content: str) -> List[Dict[str, str]]:
     """Parse requirement tables from *html_content*.
 
     Returns a list of ``OrderedDict`` objects, one per requirement table.
-    Keys are the original (un-normalised) field labels; values are the
-    cell text (with HTML entities decoded and newlines preserved).
+    Keys are **normalised** field labels (lowercase, spaces replaced with
+    underscores — the output of :func:`_normalise_column_name`).  Values are
+    the cell text with HTML entities decoded and newlines preserved.
 
     Tables that do not contain any known JAMA field label are silently
     skipped (they are likely header/footer or layout tables).
@@ -386,12 +412,14 @@ def parse_tables(html_content: str) -> List[Dict[str, str]]:
             label_raw = row[0]
             value_raw = row[1]
 
-            # Strip trailing colon from label (e.g. "Legacy ID:" → "Legacy ID")
-            label = re.sub(r"\s*:\s*$", "", label_raw).strip()
-            if not label:
+            # Strip trailing colon (e.g. "Legacy ID:" → "Legacy ID") then
+            # normalise to underscore form ("Legacy ID" → "legacy_id")
+            label_stripped = re.sub(r"\s*:\s*$", "", label_raw).strip()
+            if not label_stripped:
                 continue
+            label = _normalise_column_name(label_stripped)
 
-            if label.lower() in JAMA_KNOWN_FIELDS:
+            if label in JAMA_KNOWN_FIELDS:
                 is_requirement = True
 
             # If the same label appears twice in a table, append the value
@@ -435,17 +463,6 @@ def _extract_parent_links(notes_text: str) -> List[str]:
     return PARENT_ID_RE.findall(match.group(1))
 
 
-def _normalise_column_name(label: str) -> str:
-    """Convert a JAMA field label to a safe CSV column name.
-
-    Rules:
-    - Lowercase
-    - Replace runs of non-alphanumeric characters with a single underscore
-    - Strip leading/trailing underscores
-    """
-    return re.sub(r"[^a-z0-9]+", "_", label.lower()).strip("_")
-
-
 def records_to_doorstop_rows(
     records: List[Dict[str, str]],
     validate: bool = False,
@@ -468,16 +485,13 @@ def records_to_doorstop_rows(
         normed: Dict[str, str] = {}
         parent_links: List[str] = []
 
-        for orig_label, value in raw_record.items():
-            doorstop_key = JAMA_TO_DOORSTOP.get(orig_label.lower())
-            if doorstop_key is None:
-                col_name = _normalise_column_name(orig_label)
-            else:
-                col_name = doorstop_key
+        for col_name, value in raw_record.items():
+            # Labels are already normalised by parse_tables; look up any
+            # doorstop-specific remapping (e.g. "legacy_id" → "uid").
+            col_name = JAMA_TO_DOORSTOP.get(col_name, col_name)
 
-            # Additional Notes → extract parent links AND store the field
-            if orig_label.lower() == "additional notes":
-                col_name = "additional_notes"
+            # "additional_notes" → extract parent links AND keep the field
+            if col_name == "additional_notes":
                 parent_links.extend(_extract_parent_links(value))
 
             if col_name in normed:
