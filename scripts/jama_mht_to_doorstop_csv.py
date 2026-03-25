@@ -551,22 +551,40 @@ def records_to_doorstop_rows(
     # -----------------------------------------------------------------------
     rows: List[List[str]] = []
     missing_uid_count = 0
+    project_id_fallback_count = 0
     links_count = 0
 
     for idx, normed in enumerate(normalised_records):
         uid = normed.get("uid", "").strip()
         if not uid:
-            missing_uid_count += 1
-            msg = (
-                f"Record #{idx + 1} has no Legacy ID / uid.  "
-                f"Fields present: {list(normed.keys())}"
-            )
-            print(f"Skipped: {msg}", file=sys.stderr)
-            if validate:
-                log.error(msg)
-                raise SystemExit(1)
-            log.warning(msg)
-            continue
+            # Try to fall back to Project ID before giving up.
+            project_id_val = normed.get("project_id", "").strip()
+            if project_id_val:
+                project_id_fallback_count += 1
+                log.info(
+                    "Record #%d has no Legacy ID; using Project ID '%s' as uid.",
+                    idx + 1,
+                    project_id_val,
+                )
+                print(
+                    f"Info: Record #{idx + 1} has no Legacy ID; "
+                    f"using Project ID '{project_id_val}' as uid.",
+                    file=sys.stderr,
+                )
+                uid = project_id_val
+                normed["uid"] = uid
+            else:
+                missing_uid_count += 1
+                msg = (
+                    f"Record #{idx + 1} has no Legacy ID / uid.  "
+                    f"Fields present: {list(normed.keys())}"
+                )
+                print(f"Skipped: {msg}", file=sys.stderr)
+                if validate:
+                    log.error(msg)
+                    raise SystemExit(1)
+                log.warning(msg)
+                continue
 
         row: List[str] = []
         for col in header:
@@ -601,6 +619,7 @@ def records_to_doorstop_rows(
     print(
         f"Summary: parsed {total_parsed} requirement table(s); "
         f"{total_rows} row(s) written; "
+        f"{project_id_fallback_count} used Project ID as uid fallback; "
         f"{missing_uid_count} skipped (missing UID); "
         f"{links_count} row(s) have parent links.",
         file=sys.stderr,
