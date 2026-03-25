@@ -234,8 +234,8 @@ class _TableParser(html.parser.HTMLParser):
         elif tag in ("td", "th") and self._table_depth == 1:
             if self._current_cell is not None and self._current_row is not None:
                 text = "".join(self._current_cell)
-                # Collapse 3+ consecutive newlines to 2
-                text = re.sub(r"\n{3,}", "\n\n", text).strip()
+                # Collapse multiple consecutive newlines to one (remove blank lines)
+                text = re.sub(r"\n{2,}", "\n", text).strip()
                 self._current_row.append(text)
             self._current_cell = None
 
