@@ -1,0 +1,744 @@
+#!/usr/bin/env python3
+"""Parse a JAMA-exported Word/MHT file and convert requirement tables to CSV.
+
+Each requirement in the MHT file is represented as an individual two-column
+HTML table where:
+  - Column 0 = field label  (e.g. "Name", "Legacy ID", "Description", …)
+  - Column 1 = field value
+
+The script:
+  1. Decodes the base64-encoded HTML body from the MHT (MIME-HTML) envelope.
+     JAMA typically encodes the HTML as UTF-16LE ("unicode" charset).
+  2. Parses every <table> element and treats each row as a label/value pair.
+  3. Groups the rows into one record per requirement table.
+  4. Maps JAMA field names to doorstop CSV columns:
+       "Legacy ID"   → uid
+       "Name"        → header
+       "Description" → text
+       "Project ID"  → project_id
+       "Global ID"   → global_id
+  5. Extracts parent requirement links from "Additional Notes" text
+     (pattern: "Parents:" followed by Legacy-ID tokens such as OBJ-13).
+     Parent IDs are stored in the doorstop ``links`` column separated by
+     newlines, which is the format expected by doorstop's LIST_SEP_RE
+     splitter in doorstop/core/importer.py.
+  6. Writes a UTF-8 CSV whose column order begins with the standard doorstop
+     columns (uid, level, text, links, active, derived, normative, header,
+     reviewed) followed by every custom column discovered across all
+     requirement tables — so no data is lost and no redundant columns appear.
+  7. Defaults: level="1.0", active="True", derived="False", normative="True".
+  8. Validates that every requirement has a UID and reports a summary of
+     parsing results to stderr.
+
+Usage:
+    python scripts/jama_mht_to_doorstop_csv.py input.mht -o output.csv
+    python scripts/jama_mht_to_doorstop_csv.py input.mht -o output.csv --validate --verbose
+
+Then import with doorstop::
+
+    doorstop import output.csv YOUR_PREFIX
+
+Requirements:
+    Python >= 3.8 (standard library only — no third-party packages needed)
+
+Arguments:
+    input         Path to the .mht file exported from JAMA.
+    -o/--output   Output CSV file path (default: same stem as input + .csv).
+    --validate    Perform extra validation and abort on first missing UID.
+    --encoding    Charset to use when decoding the base64 HTML body
+                  (default: auto-detect from MIME headers, then utf-16-le).
+    -v/--verbose  Enable DEBUG-level logging.
+"""
+
+from __future__ import annotations
+
+import argparse
+import base64
+import csv
+import email
+import email.policy
+import html as html_mod
+import html.parser
+import logging
+import os
+import re
+import sys
+from collections import OrderedDict
+from typing import Dict, List, Optional, Tuple
+
+# ---------------------------------------------------------------------------
+# Logging – output to stderr so it doesn't mix with redirected CSV output
+# ---------------------------------------------------------------------------
+logging.basicConfig(
+    level=logging.WARNING,
+    stream=sys.stderr,
+    format="%(levelname)s: %(message)s",
+)
+log = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
+
+# Doorstop's standard columns, in preferred output order
+DOORSTOP_STANDARD_COLUMNS: List[str] = [
+    "uid",
+    "level",
+    "text",
+    "links",
+    "active",
+    "derived",
+    "normative",
+    "header",
+    "reviewed",
+]
+
+# Default values inserted for every row when the field was not present in JAMA
+DOORSTOP_DEFAULTS: Dict[str, str] = {
+    "level": "1.0",
+    "active": "True",
+    "derived": "False",
+    "normative": "True",
+}
+
+# Mapping: normalised JAMA label → doorstop column name
+JAMA_TO_DOORSTOP: Dict[str, str] = {
+    "legacy id": "uid",
+    "name": "header",
+    "description": "text",
+    "project id": "project_id",
+    "global id": "global_id",
+}
+
+# JAMA field names whose presence marks a table as a requirement table
+JAMA_KNOWN_FIELDS = frozenset(
+    {
+        "legacy id",
+        "name",
+        "description",
+        "project id",
+        "global id",
+        "additional notes",
+        "status",
+        "priority",
+        "item type",
+        "category",
+    }
+)
+
+# Matches "Parents:" (or "Parents -") followed by one or more Legacy IDs
+PARENTS_RE = re.compile(
+    r"Parents\s*[:\-]?\s*((?:\s*[A-Za-z][\w]*-\d+\s*)+)",
+    re.IGNORECASE,
+)
+
+# Matches a single Legacy ID token (e.g. "OBJ-13", "SYS-004")
+PARENT_ID_RE = re.compile(r"[A-Za-z][\w]*-\d+")
+
+# Candidate charsets to try when decoding the base64 HTML body
+_HTML_CHARSETS = ["utf-16-le", "utf-16", "utf-8", "latin-1"]
+
+
+# ---------------------------------------------------------------------------
+# HTML table parser (standard library only)
+# ---------------------------------------------------------------------------
+
+
+class _TableParser(html.parser.HTMLParser):
+    """Collect all top-level <table> elements as lists of rows.
+
+    Each table is represented as ``List[List[str]]`` — a list of rows,
+    each row being a list of cell text strings.  Nested tables (depth > 1)
+    are ignored structurally; their text content still flows into the
+    enclosing cell via ``handle_data``.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.tables: List[List[List[str]]] = []
+
+        self._table_depth: int = 0
+        self._current_table: Optional[List[List[str]]] = None
+        self._current_row: Optional[List[str]] = None
+        self._current_cell: Optional[List[str]] = None
+
+    # ------------------------------------------------------------------
+    # HTMLParser callbacks
+    # ------------------------------------------------------------------
+
+    def handle_starttag(self, tag: str, attrs: list) -> None:
+        tag = tag.lower()
+        if tag == "table":
+            self._table_depth += 1
+            if self._table_depth == 1:
+                self._current_table = []
+
+        elif tag == "tr" and self._table_depth == 1:
+            self._current_row = []
+
+        elif tag in ("td", "th") and self._table_depth == 1:
+            self._current_cell = []
+
+        elif tag == "br":
+            # Inline line-break inside any cell (regardless of table depth)
+            if self._current_cell is not None:
+                self._current_cell.append("\n")
+
+        elif tag in ("p", "div", "li"):
+            # Block-level elements: inject a newline *before* the element's
+            # content if there is already some text in the cell.
+            if self._current_cell is not None:
+                accumulated = "".join(self._current_cell)
+                if accumulated and not accumulated.endswith("\n"):
+                    self._current_cell.append("\n")
+
+    def handle_endtag(self, tag: str) -> None:
+        tag = tag.lower()
+        if tag == "table":
+            self._table_depth -= 1
+            if self._table_depth == 0 and self._current_table is not None:
+                self.tables.append(self._current_table)
+                self._current_table = None
+
+        elif tag == "tr" and self._table_depth == 1:
+            if self._current_row is not None and self._current_table is not None:
+                if self._current_row:  # skip empty rows
+                    self._current_table.append(self._current_row)
+            self._current_row = None
+
+        elif tag in ("td", "th") and self._table_depth == 1:
+            if self._current_cell is not None and self._current_row is not None:
+                text = "".join(self._current_cell)
+                # Collapse 3+ consecutive newlines to 2
+                text = re.sub(r"\n{3,}", "\n\n", text).strip()
+                self._current_row.append(text)
+            self._current_cell = None
+
+        elif tag in ("p", "div", "li"):
+            # Inject a trailing newline after the closing block tag
+            if self._current_cell is not None:
+                accumulated = "".join(self._current_cell)
+                if accumulated and not accumulated.endswith("\n"):
+                    self._current_cell.append("\n")
+
+    def handle_data(self, data: str) -> None:
+        if self._current_cell is not None:
+            self._current_cell.append(data)
+
+
+# ---------------------------------------------------------------------------
+# MHT / MIME helpers
+# ---------------------------------------------------------------------------
+
+
+def extract_html_from_mht(path: str, encoding: Optional[str] = None) -> str:
+    """Open *path* (an MHT/MIME-HTML file) and return the decoded HTML body.
+
+    The function tries several strategies in order:
+    1. Parse as a MIME message and look for a ``text/html`` part.
+    2. Fall back to locating the largest base64 block in the raw file and
+       decoding it as HTML.
+
+    :param path: path to the ``.mht`` file.
+    :param encoding: explicit charset override for the base64 payload
+                     (default: auto-detect from MIME headers, then utf-16-le).
+    :raises ValueError: if no HTML content could be extracted.
+    """
+    with open(path, "rb") as fh:
+        raw = fh.read()
+
+    msg = email.message_from_bytes(raw)
+
+    # --- Strategy 1: walk MIME parts looking for text/html ---
+    if msg.is_multipart():
+        for part in msg.walk():
+            ct = (part.get_content_type() or "").lower()
+            if "html" not in ct:
+                continue
+            payload = part.get_payload(decode=True)
+            if not payload:
+                continue
+            charset = encoding or part.get_content_charset() or "utf-8"
+            charset = _normalise_charset(charset)
+            return payload.decode(charset, errors="replace")
+
+    # --- Strategy 2: single-part with base64 transfer encoding ---
+    cte = (msg.get("Content-Transfer-Encoding") or "").lower()
+    if cte == "base64":
+        payload = msg.get_payload(decode=True)
+        if payload:
+            charset = encoding or msg.get_content_charset() or "utf-16-le"
+            charset = _normalise_charset(charset)
+            charsets_to_try = [charset] + [
+                c for c in _HTML_CHARSETS if c != charset
+            ]
+            for cs in charsets_to_try:
+                try:
+                    text = payload.decode(cs)
+                    if "<html" in text.lower() or "<table" in text.lower():
+                        log.info("Decoded HTML using charset '%s'.", cs)
+                        return text
+                except (UnicodeDecodeError, LookupError):
+                    continue
+
+    # --- Strategy 3: heuristic base64 block scan ---
+    raw_text = raw.decode("ascii", errors="replace")
+    b64_data = _find_base64_block(raw_text)
+    if b64_data:
+        charset = encoding or "utf-16-le"
+        charset = _normalise_charset(charset)
+        charsets_to_try = [charset] + [c for c in _HTML_CHARSETS if c != charset]
+        for cs in charsets_to_try:
+            try:
+                decoded = base64.b64decode(b64_data)
+                text = decoded.decode(cs)
+                if "<html" in text.lower() or "<table" in text.lower():
+                    log.info("Decoded HTML (heuristic) using charset '%s'.", cs)
+                    return text
+            except (UnicodeDecodeError, LookupError, Exception):
+                continue
+
+    raise ValueError(
+        f"Could not extract HTML content from {path!r}. "
+        "Ensure the file is a valid MHT/MIME-HTML export from JAMA."
+    )
+
+
+def _normalise_charset(charset: str) -> str:
+    """Normalise charset aliases used by Windows/JAMA to Python codec names."""
+    mapping = {
+        "unicode": "utf-16-le",
+        "utf-16le": "utf-16-le",
+        "utf16le": "utf-16-le",
+        "utf-16": "utf-16",
+        "utf-8": "utf-8",
+        "utf8": "utf-8",
+    }
+    return mapping.get(charset.lower(), charset)
+
+
+def _find_base64_block(text: str) -> Optional[bytes]:
+    """Heuristically locate the largest base64-encoded block in *text*.
+
+    Returns the raw bytes of the concatenated base64 content, or ``None``
+    if no block was found.
+    """
+    b64_chars = frozenset(
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/="
+    )
+    blocks: List[List[str]] = []
+    current: List[str] = []
+
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped and len(stripped) > 20 and all(c in b64_chars for c in stripped):
+            current.append(stripped)
+        else:
+            if current:
+                blocks.append(current)
+                current = []
+    if current:
+        blocks.append(current)
+
+    if not blocks:
+        return None
+
+    biggest = max(blocks, key=lambda b: sum(len(ln) for ln in b))
+    return "".join(biggest).encode("ascii")
+
+
+# ---------------------------------------------------------------------------
+# HTML → records
+# ---------------------------------------------------------------------------
+
+
+def parse_tables(html_content: str) -> List[Dict[str, str]]:
+    """Parse requirement tables from *html_content*.
+
+    Returns a list of ``OrderedDict`` objects, one per requirement table.
+    Keys are the original (un-normalised) field labels; values are the
+    cell text (with HTML entities decoded and newlines preserved).
+
+    Tables that do not contain any known JAMA field label are silently
+    skipped (they are likely header/footer or layout tables).
+    """
+    parser = _TableParser()
+    parser.feed(html_content)
+    parser.close()
+
+    log.debug("Total <table> elements found in HTML: %d", len(parser.tables))
+
+    records: List[Dict[str, str]] = []
+
+    for table_idx, rows in enumerate(parser.tables):
+        if not rows:
+            continue
+
+        record: Dict[str, str] = OrderedDict()
+        is_requirement = False
+
+        for row in rows:
+            if len(row) < 2:
+                # Single-cell row — could be a section heading; skip.
+                log.debug("Table %d: skipping single-cell row: %r", table_idx, row)
+                continue
+
+            label_raw = row[0]
+            value_raw = row[1]
+
+            # Strip trailing colon from label (e.g. "Legacy ID:" → "Legacy ID")
+            label = re.sub(r"\s*:\s*$", "", label_raw).strip()
+            if not label:
+                continue
+
+            if label.lower() in JAMA_KNOWN_FIELDS:
+                is_requirement = True
+
+            # If the same label appears twice in a table, append the value
+            if label in record:
+                record[label] = record[label] + "\n" + value_raw
+            else:
+                record[label] = value_raw
+
+        if record and is_requirement:
+            records.append(record)
+        elif record:
+            log.debug(
+                "Table %d skipped (no known JAMA fields). Labels: %s",
+                table_idx,
+                list(record.keys()),
+            )
+
+    return records
+
+
+# ---------------------------------------------------------------------------
+# Records → doorstop rows
+# ---------------------------------------------------------------------------
+
+
+def _extract_parent_links(notes_text: str) -> List[str]:
+    """Return a list of parent Legacy IDs found in *notes_text*.
+
+    Looks for text like::
+
+        Parents:
+        OBJ-13
+        OBJ-08
+        OBJ-09
+
+    and returns ``["OBJ-13", "OBJ-08", "OBJ-09"]``.
+    """
+    match = PARENTS_RE.search(notes_text)
+    if not match:
+        return []
+    return PARENT_ID_RE.findall(match.group(1))
+
+
+def _normalise_column_name(label: str) -> str:
+    """Convert a JAMA field label to a safe CSV column name.
+
+    Rules:
+    - Lowercase
+    - Replace runs of non-alphanumeric characters with a single underscore
+    - Strip leading/trailing underscores
+    """
+    return re.sub(r"[^a-z0-9]+", "_", label.lower()).strip("_")
+
+
+def records_to_doorstop_rows(
+    records: List[Dict[str, str]],
+    validate: bool = False,
+) -> Tuple[List[str], List[List[str]]]:
+    """Convert parsed JAMA records into doorstop-compatible CSV data.
+
+    :param records: list of ``OrderedDict`` from :func:`parse_tables`.
+    :param validate: if ``True``, abort (raise ``SystemExit``) on first record
+                     missing a UID instead of just warning.
+    :returns: ``(header, rows)`` where *header* is the ordered list of column
+              names and *rows* is a list of value lists (one per requirement).
+    """
+    # -----------------------------------------------------------------------
+    # Pass 1: normalise every record and discover all column names in order
+    # -----------------------------------------------------------------------
+    normalised_records: List[Dict[str, str]] = []
+    all_custom_keys: List[str] = []  # custom keys in discovery order
+
+    for raw_record in records:
+        normed: Dict[str, str] = {}
+        parent_links: List[str] = []
+
+        for orig_label, value in raw_record.items():
+            doorstop_key = JAMA_TO_DOORSTOP.get(orig_label.lower())
+            if doorstop_key is None:
+                col_name = _normalise_column_name(orig_label)
+            else:
+                col_name = doorstop_key
+
+            # Additional Notes → extract parent links AND store the field
+            if orig_label.lower() == "additional notes":
+                col_name = "additional_notes"
+                parent_links.extend(_extract_parent_links(value))
+
+            if col_name in normed:
+                normed[col_name] = normed[col_name] + "\n" + value
+            else:
+                normed[col_name] = value
+
+            # Track custom column names (not in standard doorstop columns)
+            if col_name not in DOORSTOP_STANDARD_COLUMNS and col_name not in all_custom_keys:
+                all_custom_keys.append(col_name)
+
+        # Merge extracted parent links into the "links" column
+        if parent_links:
+            existing_links = [
+                lnk
+                for lnk in normed.get("links", "").split("\n")
+                if lnk.strip()
+            ]
+            combined: List[str] = existing_links[:]
+            for lnk in parent_links:
+                if lnk not in combined:
+                    combined.append(lnk)
+            normed["links"] = "\n".join(combined)
+
+        normalised_records.append(normed)
+
+    # -----------------------------------------------------------------------
+    # Build the final column header
+    # -----------------------------------------------------------------------
+    # Always include: uid, links, and any standard column that either has a
+    # default value or appears in at least one record.
+    header: List[str] = []
+    for col in DOORSTOP_STANDARD_COLUMNS:
+        if (
+            col in ("uid", "links")
+            or col in DOORSTOP_DEFAULTS
+            or any(col in r for r in normalised_records)
+        ):
+            header.append(col)
+
+    # Ensure uid is first, links is present
+    if "uid" not in header:
+        header.insert(0, "uid")
+    if "links" not in header:
+        # Insert links after text (or after uid if text absent)
+        insert_after = "text" if "text" in header else "uid"
+        idx = header.index(insert_after) + 1
+        header.insert(idx, "links")
+
+    # Append custom columns in discovery order (skip any that ended up in header)
+    for key in all_custom_keys:
+        if key not in header:
+            header.append(key)
+
+    # -----------------------------------------------------------------------
+    # Pass 2: build rows, apply defaults, validate
+    # -----------------------------------------------------------------------
+    rows: List[List[str]] = []
+    missing_uid_count = 0
+    links_count = 0
+
+    for idx, normed in enumerate(normalised_records):
+        uid = normed.get("uid", "").strip()
+        if not uid:
+            missing_uid_count += 1
+            msg = (
+                f"Record #{idx + 1} has no Legacy ID / uid.  "
+                f"Fields present: {list(normed.keys())}"
+            )
+            if validate:
+                log.error(msg)
+                raise SystemExit(1)
+            log.warning(msg)
+            continue
+
+        row: List[str] = []
+        for col in header:
+            if col in normed:
+                row.append(normed[col])
+            elif col in DOORSTOP_DEFAULTS:
+                row.append(DOORSTOP_DEFAULTS[col])
+            else:
+                row.append("")
+        rows.append(row)
+
+        if normed.get("links"):
+            links_count += 1
+
+    # -----------------------------------------------------------------------
+    # Validation: check for duplicate UIDs
+    # -----------------------------------------------------------------------
+    uid_col_idx = header.index("uid")
+    uid_counts: Dict[str, int] = {}
+    for row in rows:
+        u = row[uid_col_idx]
+        uid_counts[u] = uid_counts.get(u, 0) + 1
+    duplicates = {u: c for u, c in uid_counts.items() if c > 1}
+    if duplicates:
+        log.warning("Duplicate UIDs detected: %s", duplicates)
+
+    # -----------------------------------------------------------------------
+    # Summary statistics (to stderr)
+    # -----------------------------------------------------------------------
+    total_parsed = len(records)
+    total_rows = len(rows)
+    print(
+        f"Summary: parsed {total_parsed} requirement table(s); "
+        f"{total_rows} row(s) written; "
+        f"{missing_uid_count} skipped (missing UID); "
+        f"{links_count} row(s) have parent links.",
+        file=sys.stderr,
+    )
+    if duplicates:
+        print(f"Warning: duplicate UIDs: {duplicates}", file=sys.stderr)
+
+    # Warn about completely empty columns
+    for ci, col_name in enumerate(header):
+        if all(row[ci] == "" for row in rows):
+            log.info(
+                "Column '%s' is empty for all rows "
+                "(kept in output for schema consistency).",
+                col_name,
+            )
+
+    return header, rows
+
+
+# ---------------------------------------------------------------------------
+# CSV writer
+# ---------------------------------------------------------------------------
+
+
+def write_csv(header: List[str], rows: List[List[str]], path: str) -> None:
+    """Write *header* and *rows* to a UTF-8 CSV file at *path*."""
+    with open(path, "w", newline="", encoding="utf-8") as fh:
+        writer = csv.writer(fh)
+        writer.writerow(header)
+        for row in rows:
+            writer.writerow(row)
+    log.info("Wrote %d data row(s) to '%s'.", len(rows), path)
+
+
+# ---------------------------------------------------------------------------
+# CLI entry point
+# ---------------------------------------------------------------------------
+
+
+def build_parser() -> argparse.ArgumentParser:
+    """Return the argument parser for the CLI."""
+    parser = argparse.ArgumentParser(
+        prog="jama_mht_to_doorstop_csv",
+        description=(
+            "Convert a JAMA-exported MHT/Word file to a doorstop-importable CSV."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=__doc__,
+    )
+    parser.add_argument("input", help="Path to the .mht file exported from JAMA.")
+    parser.add_argument(
+        "-o",
+        "--output",
+        default=None,
+        help=(
+            "Output CSV file path.  "
+            "Defaults to the input filename with a .csv extension."
+        ),
+    )
+    parser.add_argument(
+        "--validate",
+        action="store_true",
+        help=(
+            "Abort with a non-zero exit code if any requirement is missing a "
+            "Legacy ID, rather than silently skipping it."
+        ),
+    )
+    parser.add_argument(
+        "--encoding",
+        default=None,
+        metavar="CHARSET",
+        help=(
+            "Character set used to decode the base64 HTML body "
+            "(e.g. utf-16-le, utf-8).  "
+            "Auto-detected from the MHT MIME headers by default; "
+            "falls back to utf-16-le if not specified."
+        ),
+    )
+    parser.add_argument(
+        "-v",
+        "--verbose",
+        action="store_true",
+        help="Enable DEBUG-level logging.",
+    )
+    return parser
+
+
+def main(argv: Optional[List[str]] = None) -> int:
+    """CLI entry point.  Returns an exit code (0 = success)."""
+    parser = build_parser()
+    args = parser.parse_args(argv)
+
+    if args.verbose:
+        logging.getLogger().setLevel(logging.DEBUG)
+    else:
+        logging.getLogger().setLevel(logging.INFO)
+
+    input_path: str = args.input
+    if not os.path.isfile(input_path):
+        log.error("Input file not found: %s", input_path)
+        return 1
+
+    # Derive default output path
+    output_path: str = args.output
+    if output_path is None:
+        base = os.path.splitext(input_path)[0]
+        output_path = base + ".csv"
+
+    # ------------------------------------------------------------------
+    # Step 1: extract HTML from the MHT envelope
+    # ------------------------------------------------------------------
+    log.info("Extracting HTML from '%s' …", input_path)
+    try:
+        html_content = extract_html_from_mht(input_path, encoding=args.encoding)
+    except ValueError as exc:
+        log.error("%s", exc)
+        return 1
+
+    log.debug("Extracted HTML length: %d character(s).", len(html_content))
+
+    # ------------------------------------------------------------------
+    # Step 2: parse requirement tables
+    # ------------------------------------------------------------------
+    log.info("Parsing requirement tables …")
+    records = parse_tables(html_content)
+    if not records:
+        log.error(
+            "No requirement tables were found in the document.  "
+            "Check that the file is a valid JAMA MHT export."
+        )
+        return 1
+
+    log.info("Found %d requirement table(s).", len(records))
+
+    # ------------------------------------------------------------------
+    # Step 3: convert to doorstop-compatible rows
+    # ------------------------------------------------------------------
+    try:
+        header, rows = records_to_doorstop_rows(records, validate=args.validate)
+    except SystemExit:
+        return 1
+
+    if not rows:
+        log.error("No valid rows produced (all records were missing a UID).")
+        return 1
+
+    # ------------------------------------------------------------------
+    # Step 4: write CSV
+    # ------------------------------------------------------------------
+    write_csv(header, rows, output_path)
+    print(f"Output written to: {output_path}", file=sys.stderr)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
