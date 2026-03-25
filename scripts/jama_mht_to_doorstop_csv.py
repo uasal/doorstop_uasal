@@ -12,11 +12,15 @@ The script:
   2. Parses every <table> element and treats each row as a label/value pair.
   3. Groups the rows into one record per requirement table.
   4. Maps JAMA field names to doorstop CSV columns:
-       "Legacy ID"   → uid
-       "Name"        → header
-       "Description" → text
-       "Project ID"  → project_id
-       "Global ID"   → global_id
+       "Legacy ID"            → uid
+       "Name"                 → header
+       "Description"          → text
+       "Project ID"           → project_id
+       "Global ID"            → global_id
+       "Created"              → created
+       "Modified" /
+       "Last Modified" /
+       "Date Modified"        → modified
   5. Extracts parent requirement links from "Additional Notes" text
      (pattern: "Parents:" followed by Legacy-ID tokens such as OBJ-13).
      Parent IDs are stored in the doorstop ``links`` column separated by
@@ -110,6 +114,14 @@ JAMA_TO_DOORSTOP: Dict[str, str] = {
     "project_id": "project_id",
     "global_id": "global_id",
     "additional_notes": "additional_notes",
+    # Date fields — JAMA uses several spellings; normalise to two columns.
+    "created": "created",
+    "date_created": "created",
+    "modified": "modified",
+    "last_modified": "modified",
+    "date_modified": "modified",
+    "updated": "modified",
+    "last_updated": "modified",
 }
 
 # JAMA field names (normalised to underscores) whose presence marks a table
@@ -126,6 +138,13 @@ JAMA_KNOWN_FIELDS = frozenset(
         "priority",
         "item_type",
         "category",
+        "created",
+        "date_created",
+        "modified",
+        "last_modified",
+        "date_modified",
+        "updated",
+        "last_updated",
     }
 )
 
