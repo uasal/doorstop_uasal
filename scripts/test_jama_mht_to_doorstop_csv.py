@@ -131,10 +131,10 @@ class TestExtractStandaloneDates(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# parse_tables – fallback date injection
+# parse_tables – date handling
 # ---------------------------------------------------------------------------
 
-# Minimal requirement table HTML (no date rows) with Office XML dates.
+# Requirement table HTML with no date rows but with Office XML dates in head.
 _TABLE_NO_DATES = """
 <html>
 <head>
@@ -151,7 +151,7 @@ _TABLE_NO_DATES = """
 </html>
 """
 
-# Same table but WITH a "Created" row – office XML date should NOT override.
+# Table WITH a "Created" row — only this per-requirement date should appear.
 _TABLE_WITH_DATE_ROW = """
 <html>
 <head>
@@ -169,7 +169,7 @@ _TABLE_WITH_DATE_ROW = """
 </html>
 """
 
-# Table with standalone date lines outside the table.
+# Table with standalone date lines outside the table (no table-row dates).
 _TABLE_STANDALONE_DATES = """
 <html>
 <head>
@@ -189,35 +189,42 @@ Updated: 03/23/2026 06:05:49 PM UTC
 """
 
 
-class TestParseTablesFallbackDates(unittest.TestCase):
-    """Tests for fallback date injection in parse_tables()."""
+class TestParseTablesDates(unittest.TestCase):
+    """Tests for date handling in parse_tables()."""
 
-    def test_fallback_dates_injected_when_table_has_no_dates(self):
+    def test_office_xml_dates_not_injected_into_requirements(self):
+        """Office XML <o:Created>/<o:LastSaved> must NOT appear in records."""
         records = parse_tables(_TABLE_NO_DATES)
         self.assertEqual(len(records), 1)
         rec = records[0]
-        # Fallback dates from Office XML should be present
-        self.assertIn("created", rec)
-        self.assertIn("modified", rec)
-        self.assertEqual(rec["created"], "2026-03-25T05:10:00Z")
-        self.assertEqual(rec["modified"], "2026-03-25T05:11:00Z")
+        # No date row in the table → created/modified must be absent
+        self.assertNotIn("created", rec)
+        self.assertNotIn("modified", rec)
+        # The Office XML export timestamp must not leak in either
+        self.assertNotEqual(rec.get("created"), "2026-03-25T05:10:00Z")
+        self.assertNotEqual(rec.get("modified"), "2026-03-25T05:11:00Z")
 
-    def test_table_row_date_takes_priority_over_office_xml(self):
+    def test_table_row_date_is_captured(self):
+        """Per-requirement date rows inside the table ARE captured."""
         records = parse_tables(_TABLE_WITH_DATE_ROW)
         self.assertEqual(len(records), 1)
         rec = records[0]
-        # The table row "Created" value must win over the Office XML date
+        # The table row "Created" value must be present
         self.assertEqual(rec["created"], "01/01/2020 00:00:00 AM UTC")
+        # Office XML date must not replace the table-row date
+        self.assertNotEqual(rec["created"], "2026-03-25T05:10:00Z")
 
-    def test_standalone_dates_take_priority_over_office_xml(self):
+    def test_standalone_dates_not_injected_into_requirements(self):
+        """Standalone date text outside tables must NOT be applied globally."""
         records = parse_tables(_TABLE_STANDALONE_DATES)
         self.assertEqual(len(records), 1)
         rec = records[0]
-        # Standalone dates are more specific and should override Office XML
-        self.assertEqual(rec["created"], "02/09/2025 09:23:45 PM UTC")
-        self.assertEqual(rec["modified"], "03/23/2026 06:05:49 PM UTC")
+        # No date row in the table → created/modified must be absent
+        self.assertNotIn("created", rec)
+        self.assertNotIn("modified", rec)
 
-    def test_no_fallback_when_no_office_xml_dates(self):
+    def test_no_dates_when_table_has_no_date_rows(self):
+        """When a requirement table has no date rows, created/modified are empty."""
         html = """
         <html><body>
         <table>

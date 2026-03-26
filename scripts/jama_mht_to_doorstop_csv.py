@@ -34,27 +34,13 @@ The script:
   8. Validates that every requirement has a UID and reports a summary of
      parsing results to stderr.
 
-Date extraction sources (in priority order, highest first):
-  - Priority 1 (highest): Table row dates — per-requirement dates that appear
-    as rows inside the two-column requirement tables (e.g. a row with label
-    "Created" and a value cell containing the date string).  These take full
-    priority and are never overridden by lower-priority sources.
-  - Priority 2: Standalone text dates — date lines that appear outside the
-    requirement tables in the HTML body, e.g.::
-
-        Created: 02/09/2025 09:23:45 PM UTC
-        Updated: 03/23/2026 06:05:49 PM UTC
-
-    Supported labels: Created, Updated, Modified, Last Modified, Last Updated,
-    Date Created, Date Modified.
-  - Priority 3 (lowest): Office XML document properties — ISO 8601 dates
-    stored in the MHT ``<head>`` section as Office XML tags, e.g.::
-
-        <o:Created>2026-03-25T05:10:00Z</o:Created>
-        <o:LastSaved>2026-03-25T05:11:00Z</o:LastSaved>
-
-    These are document-level metadata and apply only when no higher-priority
-    date is available for a given requirement.
+Date extraction:
+  Dates are sourced exclusively from rows within each requirement's own table
+  (e.g. a row with label "Created" and the date string in the value cell).
+  Document-level Office XML tags (``<o:Created>``, ``<o:LastSaved>``) and
+  standalone date lines outside tables are intentionally NOT used as fallback
+  values for individual requirements — those represent export-file timestamps,
+  not per-requirement dates.
 
 Usage:
     python scripts/jama_mht_to_doorstop_csv.py input.mht -o output.csv
@@ -513,24 +499,12 @@ def parse_tables(html_content: str) -> List[Dict[str, str]]:
     Tables that do not contain any known JAMA field label are silently
     skipped (they are likely header/footer or layout tables).
 
-    Date fields are filled from three sources in priority order (highest
-    first):
-
-    1. Table row dates — per-requirement dates from within the table.
-    2. Standalone text dates — e.g. ``Created: 02/09/2025 09:23:45 PM UTC``
-       found outside requirement tables.
-    3. Office XML document properties — ``<o:Created>`` / ``<o:LastSaved>``
-       tags in the MHT ``<head>`` section.
+    Date fields are sourced exclusively from table rows within each individual
+    requirement table.  Document-level metadata such as Office XML
+    ``<o:Created>`` / ``<o:LastSaved>`` tags and any standalone date lines
+    appearing outside requirement tables are intentionally ignored, because
+    those represent export-file timestamps rather than per-requirement dates.
     """
-    # Collect fallback dates from lower-priority sources before parsing tables.
-    office_dates = _extract_office_dates(html_content)
-    standalone_dates = _extract_standalone_dates(html_content)
-
-    # Standalone dates take priority over Office XML dates.
-    fallback_dates: Dict[str, str] = {**office_dates, **standalone_dates}
-    if fallback_dates:
-        log.debug("Fallback dates available: %s", fallback_dates)
-
     parser = _TableParser()
     parser.feed(html_content)
     parser.close()
@@ -572,24 +546,6 @@ def parse_tables(html_content: str) -> List[Dict[str, str]]:
                 record[label] = value_raw
 
         if record and is_requirement:
-            # Inject fallback dates for any missing date fields.
-            # A date field is considered present if any JAMA spelling variant
-            # that maps to it already exists in the record.
-            for canonical_date_col in ("created", "modified"):
-                # Check whether any JAMA label variant for this column is
-                # already in the record.
-                has_date = any(
-                    JAMA_TO_DOORSTOP.get(key) == canonical_date_col
-                    for key in record
-                )
-                if not has_date and canonical_date_col in fallback_dates:
-                    record[canonical_date_col] = fallback_dates[canonical_date_col]
-                    log.debug(
-                        "Table %d: injected fallback %s = %r",
-                        table_idx,
-                        canonical_date_col,
-                        record[canonical_date_col],
-                    )
             records.append(record)
         elif record:
             log.debug(
