@@ -197,10 +197,10 @@ class TestParseTablesDates(unittest.TestCase):
         records = parse_tables(_TABLE_NO_DATES)
         self.assertEqual(len(records), 1)
         rec = records[0]
-        # No date row in the table → created/modified must be absent
+        # No date row in the table and no standalone dates → created/modified absent
         self.assertNotIn("created", rec)
         self.assertNotIn("modified", rec)
-        # The Office XML export timestamp must not leak in either
+        # The Office XML export timestamp must not leak in
         self.assertNotEqual(rec.get("created"), "2026-03-25T05:10:00Z")
         self.assertNotEqual(rec.get("modified"), "2026-03-25T05:11:00Z")
 
@@ -214,17 +214,37 @@ class TestParseTablesDates(unittest.TestCase):
         # Office XML date must not replace the table-row date
         self.assertNotEqual(rec["created"], "2026-03-25T05:10:00Z")
 
-    def test_standalone_dates_not_injected_into_requirements(self):
-        """Standalone date text outside tables must NOT be applied globally."""
+    def test_standalone_dates_used_as_fallback(self):
+        """Standalone date text outside tables IS used when no table-row dates exist."""
         records = parse_tables(_TABLE_STANDALONE_DATES)
         self.assertEqual(len(records), 1)
         rec = records[0]
-        # No date row in the table → created/modified must be absent
-        self.assertNotIn("created", rec)
-        self.assertNotIn("modified", rec)
+        # Standalone dates should be captured as fallback
+        self.assertEqual(rec["created"], "02/09/2025 09:23:45 PM UTC")
+        self.assertEqual(rec["modified"], "03/23/2026 06:05:49 PM UTC")
 
-    def test_no_dates_when_table_has_no_date_rows(self):
-        """When a requirement table has no date rows, created/modified are empty."""
+    def test_table_row_date_takes_priority_over_standalone(self):
+        """Table-row dates win over standalone dates when both are present."""
+        html = """
+        <html><body>
+        Created: 01/01/2000 00:00:00 AM UTC
+        Updated: 01/01/2000 00:00:00 AM UTC
+        <table>
+          <tr><td>Legacy ID</td><td>REQ-010</td></tr>
+          <tr><td>Name</td><td>Priority test</td></tr>
+          <tr><td>Description</td><td>Text</td></tr>
+          <tr><td>Created</td><td>02/09/2025 09:23:45 PM UTC</td></tr>
+        </table>
+        </body></html>
+        """
+        records = parse_tables(html)
+        self.assertEqual(len(records), 1)
+        rec = records[0]
+        # Table row date must win over the standalone fallback
+        self.assertEqual(rec["created"], "02/09/2025 09:23:45 PM UTC")
+
+    def test_no_dates_when_table_has_no_date_rows_and_no_standalone(self):
+        """When a requirement table has no date rows and no standalone dates, fields are absent."""
         html = """
         <html><body>
         <table>
