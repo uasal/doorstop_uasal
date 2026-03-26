@@ -180,10 +180,17 @@ _HTML_CHARSETS = ["utf-16-le", "utf-16", "utf-8", "latin-1"]
 # Matches standalone date lines that appear *outside* requirement tables, e.g.:
 #   "Created: 02/09/2025 09:23:45 PM UTC"
 #   "Updated: 03/23/2026 06:05:49 PM UTC"
+#   "Created: 02/09/2025 09:23:45 PM UTC  Updated: 03/23/2026 06:05:49 PM UTC"
+# Uses a negative lookbehind so the label matches even when preceded by
+# whitespace (not just at the very start of a line), and non-greedy value
+# matching with a lookahead so two labels on the same line are each captured
+# independently.
 # Group 1 = label, Group 2 = date value
 _STANDALONE_DATE_RE = re.compile(
-    r"^(?P<label>Created|Updated|Modified|Last\s+Modified|Last\s+Updated"
-    r"|Date\s+Created|Date\s+Modified)\s*:\s*(?P<value>.+)$",
+    r"(?<!\w)(?P<label>Created|Updated|Modified|Last\s+Modified|Last\s+Updated"
+    r"|Date\s+Created|Date\s+Modified)\s*:\s*"
+    r"(?P<value>.+?)(?=\s*(?:Created|Updated|Modified|Last\s+Modified|Last\s+Updated"
+    r"|Date\s+Created|Date\s+Modified)\s*:|\s*$)",
     re.IGNORECASE | re.MULTILINE,
 )
 
@@ -241,11 +248,18 @@ class _TableParser(html.parser.HTMLParser):
     def __init__(self) -> None:
         super().__init__(convert_charrefs=True)
         self.tables: List[List[List[str]]] = []
+        # Text that appears *before* each top-level table in document order.
+        # ``pre_table_texts[i]`` is the concatenated text seen between the
+        # previous table end (or the document start) and the start of
+        # ``tables[i]``.  Used to extract per-requirement standalone dates.
+        self.pre_table_texts: List[str] = []
 
         self._table_depth: int = 0
         self._current_table: Optional[List[List[str]]] = None
         self._current_row: Optional[List[str]] = None
         self._current_cell: Optional[List[str]] = None
+        # Accumulates text/whitespace seen *outside* any table element
+        self._pending_text: List[str] = []
 
     # ------------------------------------------------------------------
     # HTMLParser callbacks
@@ -257,6 +271,9 @@ class _TableParser(html.parser.HTMLParser):
             self._table_depth += 1
             if self._table_depth == 1:
                 self._current_table = []
+                # Snapshot the text accumulated before this table and reset
+                self.pre_table_texts.append("".join(self._pending_text))
+                self._pending_text = []
 
         elif tag == "tr" and self._table_depth == 1:
             self._current_row = []
@@ -312,6 +329,9 @@ class _TableParser(html.parser.HTMLParser):
     def handle_data(self, data: str) -> None:
         if self._current_cell is not None:
             self._current_cell.append(data)
+        elif self._table_depth == 0:
+            # Outside any table — accumulate for per-table standalone-date lookup
+            self._pending_text.append(data)
 
 
 # ---------------------------------------------------------------------------
@@ -520,11 +540,6 @@ def parse_tables(html_content: str) -> List[Dict[str, str]]:
     intentionally ignored — those are export-file timestamps generated when the
     MHT was saved, not per-requirement dates.
     """
-    # Collect standalone dates as fallback (Office XML dates are not used).
-    standalone_dates = _extract_standalone_dates(html_content)
-    if standalone_dates:
-        log.debug("Standalone fallback dates available: %s", standalone_dates)
-
     parser = _TableParser()
     parser.feed(html_content)
     parser.close()
@@ -566,8 +581,23 @@ def parse_tables(html_content: str) -> List[Dict[str, str]]:
                 record[label] = value_raw
 
         if record and is_requirement:
-            # Apply standalone date fallback for any missing date fields.
+            # Apply per-table standalone date fallback for any missing date fields.
             # Table row dates take full priority; standalone dates fill gaps.
+            # The standalone dates come from the text immediately preceding this
+            # table (captured by _TableParser.pre_table_texts), so each
+            # requirement picks up its own unique Created/Updated timestamps.
+            pre_text = (
+                parser.pre_table_texts[table_idx]
+                if table_idx < len(parser.pre_table_texts)
+                else ""
+            )
+            standalone_dates = _extract_standalone_dates(pre_text)
+            if standalone_dates:
+                log.debug(
+                    "Table %d: standalone dates from preceding text: %s",
+                    table_idx,
+                    standalone_dates,
+                )
             for canonical_date_col in ("created", "modified"):
                 has_date = any(
                     JAMA_TO_DOORSTOP.get(key) == canonical_date_col

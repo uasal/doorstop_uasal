@@ -260,6 +260,38 @@ class TestParseTablesDates(unittest.TestCase):
         self.assertNotIn("created", rec)
         self.assertNotIn("modified", rec)
 
+    def test_multiple_requirements_each_get_their_own_dates(self):
+        """Different requirement tables each get the standalone dates from their own preceding text."""
+        html = """
+        <html><body>
+        Created: 02/09/2025 09:23:45 PM UTC  Updated: 03/23/2026 06:05:49 PM UTC
+        <table>
+          <tr><td>Legacy ID</td><td>SYS-001</td></tr>
+          <tr><td>Name</td><td>System Requirement 1</td></tr>
+          <tr><td>Description</td><td>The system shall do X</td></tr>
+        </table>
+        Created: 03/15/2025 10:30:00 AM UTC  Updated: 03/25/2026 02:15:30 PM UTC
+        <table>
+          <tr><td>Legacy ID</td><td>SYS-002</td></tr>
+          <tr><td>Name</td><td>System Requirement 2</td></tr>
+          <tr><td>Description</td><td>The system shall do Y</td></tr>
+        </table>
+        </body></html>
+        """
+        records = parse_tables(html)
+        self.assertEqual(len(records), 2)
+        # First requirement
+        rec1 = next(r for r in records if r.get("legacy_id") == "SYS-001")
+        self.assertEqual(rec1["created"], "02/09/2025 09:23:45 PM UTC")
+        self.assertEqual(rec1["modified"], "03/23/2026 06:05:49 PM UTC")
+        # Second requirement — different timestamps
+        rec2 = next(r for r in records if r.get("legacy_id") == "SYS-002")
+        self.assertEqual(rec2["created"], "03/15/2025 10:30:00 AM UTC")
+        self.assertEqual(rec2["modified"], "03/25/2026 02:15:30 PM UTC")
+        # Dates must differ between the two records
+        self.assertNotEqual(rec1["created"], rec2["created"])
+        self.assertNotEqual(rec1["modified"], rec2["modified"])
+
 
 if __name__ == "__main__":
     unittest.main()
