@@ -282,6 +282,61 @@ class TestParseTablesDates(unittest.TestCase):
         self.assertNotIn("created", rec)
         self.assertNotIn("modified", rec)
 
+    def test_layout_table_between_dates_and_requirement_table(self):
+        """Backward scan finds standalone dates even when a layout table intervenes."""
+        html = """
+        <html><body>
+        Created: 02/09/2025 09:23:45 PM UTC  Updated: 03/23/2026 06:05:49 PM UTC
+        <table>
+          <tr><td>Section Header</td></tr>
+        </table>
+        <table>
+          <tr><td>Legacy ID</td><td>SYS-010</td></tr>
+          <tr><td>Name</td><td>Req with layout table in between</td></tr>
+          <tr><td>Description</td><td>The system shall do Z</td></tr>
+        </table>
+        </body></html>
+        """
+        records = parse_tables(html)
+        self.assertEqual(len(records), 1)
+        rec = records[0]
+        self.assertEqual(rec.get("legacy_id"), "SYS-010")
+        # Despite the intervening layout table, backward scan should find dates
+        self.assertEqual(rec["created"], "02/09/2025 09:23:45 PM UTC")
+        self.assertEqual(rec["modified"], "03/23/2026 06:05:49 PM UTC")
+
+    def test_backward_scan_does_not_cross_previous_requirement_table(self):
+        """Backward scan stops at the previous requirement table's boundary."""
+        html = """
+        <html><body>
+        Created: 01/01/2020 12:00:00 AM UTC  Updated: 01/01/2020 12:00:00 AM UTC
+        <table>
+          <tr><td>Legacy ID</td><td>SYS-020</td></tr>
+          <tr><td>Name</td><td>First requirement</td></tr>
+          <tr><td>Description</td><td>Text</td></tr>
+        </table>
+        <table>
+          <tr><td>Section Header</td></tr>
+        </table>
+        <table>
+          <tr><td>Legacy ID</td><td>SYS-021</td></tr>
+          <tr><td>Name</td><td>Second requirement, no dates of its own</td></tr>
+          <tr><td>Description</td><td>Text</td></tr>
+        </table>
+        </body></html>
+        """
+        records = parse_tables(html)
+        self.assertEqual(len(records), 2)
+        rec1 = next(r for r in records if r.get("legacy_id") == "SYS-020")
+        rec2 = next(r for r in records if r.get("legacy_id") == "SYS-021")
+        # First requirement gets the standalone dates
+        self.assertEqual(rec1["created"], "01/01/2020 12:00:00 AM UTC")
+        self.assertEqual(rec1["modified"], "01/01/2020 12:00:00 AM UTC")
+        # Second requirement has no dates after the first requirement's table;
+        # the backward scan must not cross the first requirement boundary
+        self.assertNotIn("created", rec2)
+        self.assertNotIn("modified", rec2)
+
     def test_multiple_requirements_each_get_their_own_dates(self):
         """Different requirement tables each get the standalone dates from their own preceding text."""
         html = """

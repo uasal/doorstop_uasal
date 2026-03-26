@@ -550,6 +550,9 @@ def parse_tables(html_content: str) -> List[Dict[str, str]]:
     log.debug("Total <table> elements found in HTML: %d", len(parser.tables))
 
     records: List[Dict[str, str]] = []
+    # Track the index of the most recently processed requirement table so the
+    # backward date scan never crosses into a previous requirement's "zone".
+    last_req_table_idx: int = -1
 
     for table_idx, rows in enumerate(parser.tables):
         if not rows:
@@ -586,15 +589,34 @@ def parse_tables(html_content: str) -> List[Dict[str, str]]:
         if record and is_requirement:
             # Apply per-table standalone date fallback for any missing date fields.
             # Table row dates take full priority; standalone dates fill gaps.
-            # The standalone dates come from the text immediately preceding this
-            # table (captured by _TableParser.pre_table_texts), so each
-            # requirement picks up its own unique Created/Updated timestamps.
+            #
+            # First try the text immediately preceding this table.  If no
+            # standalone dates are found there, scan backward through earlier
+            # pre_table_texts entries — stopping before the previous requirement
+            # table's index — so that an intervening layout/header table does
+            # not break the date association.
             pre_text = (
                 parser.pre_table_texts[table_idx]
                 if table_idx < len(parser.pre_table_texts)
                 else ""
             )
             standalone_dates = _extract_standalone_dates(pre_text)
+            if not standalone_dates:
+                for scan_idx in range(table_idx - 1, last_req_table_idx, -1):
+                    if scan_idx < len(parser.pre_table_texts):
+                        candidate = _extract_standalone_dates(
+                            parser.pre_table_texts[scan_idx]
+                        )
+                        if candidate:
+                            standalone_dates = candidate
+                            log.debug(
+                                "Table %d: standalone dates found by backward "
+                                "scan at pre_table_texts[%d]: %s",
+                                table_idx,
+                                scan_idx,
+                                standalone_dates,
+                            )
+                            break
             if standalone_dates:
                 log.debug(
                     "Table %d: standalone dates from preceding text: %s",
@@ -614,6 +636,7 @@ def parse_tables(html_content: str) -> List[Dict[str, str]]:
                         canonical_date_col,
                         record[canonical_date_col],
                     )
+            last_req_table_idx = table_idx
             records.append(record)
         elif record:
             log.debug(
