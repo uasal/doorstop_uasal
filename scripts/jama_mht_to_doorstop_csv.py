@@ -533,8 +533,11 @@ def parse_tables(html_content: str) -> List[Dict[str, str]]:
     1. Table row dates — per-requirement dates from within the table.
     2. Standalone text dates — e.g. ``Created: 02/09/2025 09:23:45 PM UTC``
        found outside requirement tables.  These are the actual JAMA
-       per-requirement dates in many MHT exports and are applied as a fallback
-       when a requirement table has no date rows of its own.
+       per-requirement dates in many MHT exports.  Each missing date field
+       (``created`` and ``modified`` are checked independently) is filled from
+       the standalone text when no table row provides that field.  A table row
+       that does supply one field does not block the other field from being
+       filled from standalone text.
 
     Office XML document properties (``<o:Created>`` / ``<o:LastSaved>``) are
     intentionally ignored — those are export-file timestamps generated when the

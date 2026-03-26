@@ -243,6 +243,28 @@ class TestParseTablesDates(unittest.TestCase):
         # Table row date must win over the standalone fallback
         self.assertEqual(rec["created"], "02/09/2025 09:23:45 PM UTC")
 
+    def test_standalone_fills_missing_field_when_table_has_partial_dates(self):
+        """Standalone fills the missing field even when the table supplies the other."""
+        html = """
+        <html><body>
+        Created: 01/01/2000 00:00:00 AM UTC
+        Updated: 05/05/2025 08:00:00 AM UTC
+        <table>
+          <tr><td>Legacy ID</td><td>REQ-011</td></tr>
+          <tr><td>Name</td><td>Partial date test</td></tr>
+          <tr><td>Description</td><td>Text</td></tr>
+          <tr><td>Created</td><td>02/09/2025 09:23:45 PM UTC</td></tr>
+        </table>
+        </body></html>
+        """
+        records = parse_tables(html)
+        self.assertEqual(len(records), 1)
+        rec = records[0]
+        # Table row date for 'created' must win
+        self.assertEqual(rec["created"], "02/09/2025 09:23:45 PM UTC")
+        # 'modified' was not in the table, so standalone fallback must apply
+        self.assertEqual(rec["modified"], "05/05/2025 08:00:00 AM UTC")
+
     def test_no_dates_when_table_has_no_date_rows_and_no_standalone(self):
         """When a requirement table has no date rows and no standalone dates, fields are absent."""
         html = """
