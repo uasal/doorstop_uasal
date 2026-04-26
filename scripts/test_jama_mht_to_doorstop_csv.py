@@ -131,10 +131,10 @@ class TestExtractStandaloneDates(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# parse_tables – fallback date injection
+# parse_tables – date handling
 # ---------------------------------------------------------------------------
 
-# Minimal requirement table HTML (no date rows) with Office XML dates.
+# Requirement table HTML with no date rows but with Office XML dates in head.
 _TABLE_NO_DATES = """
 <html>
 <head>
@@ -151,7 +151,7 @@ _TABLE_NO_DATES = """
 </html>
 """
 
-# Same table but WITH a "Created" row – office XML date should NOT override.
+# Table WITH a "Created" row — only this per-requirement date should appear.
 _TABLE_WITH_DATE_ROW = """
 <html>
 <head>
@@ -169,7 +169,7 @@ _TABLE_WITH_DATE_ROW = """
 </html>
 """
 
-# Table with standalone date lines outside the table.
+# Table with standalone date lines outside the table (no table-row dates).
 _TABLE_STANDALONE_DATES = """
 <html>
 <head>
@@ -189,35 +189,84 @@ Updated: 03/23/2026 06:05:49 PM UTC
 """
 
 
-class TestParseTablesFallbackDates(unittest.TestCase):
-    """Tests for fallback date injection in parse_tables()."""
+class TestParseTablesDates(unittest.TestCase):
+    """Tests for date handling in parse_tables()."""
 
-    def test_fallback_dates_injected_when_table_has_no_dates(self):
+    def test_office_xml_dates_not_injected_into_requirements(self):
+        """Office XML <o:Created>/<o:LastSaved> must NOT appear in records."""
         records = parse_tables(_TABLE_NO_DATES)
         self.assertEqual(len(records), 1)
         rec = records[0]
-        # Fallback dates from Office XML should be present
-        self.assertIn("created", rec)
-        self.assertIn("modified", rec)
-        self.assertEqual(rec["created"], "2026-03-25T05:10:00Z")
-        self.assertEqual(rec["modified"], "2026-03-25T05:11:00Z")
+        # No date row in the table and no standalone dates → created/modified absent
+        self.assertNotIn("created", rec)
+        self.assertNotIn("modified", rec)
+        # The Office XML export timestamp must not leak in
+        self.assertNotEqual(rec.get("created"), "2026-03-25T05:10:00Z")
+        self.assertNotEqual(rec.get("modified"), "2026-03-25T05:11:00Z")
 
-    def test_table_row_date_takes_priority_over_office_xml(self):
+    def test_table_row_date_is_captured(self):
+        """Per-requirement date rows inside the table ARE captured."""
         records = parse_tables(_TABLE_WITH_DATE_ROW)
         self.assertEqual(len(records), 1)
         rec = records[0]
-        # The table row "Created" value must win over the Office XML date
+        # The table row "Created" value must be present
         self.assertEqual(rec["created"], "01/01/2020 00:00:00 AM UTC")
+        # Office XML date must not replace the table-row date
+        self.assertNotEqual(rec["created"], "2026-03-25T05:10:00Z")
 
-    def test_standalone_dates_take_priority_over_office_xml(self):
+    def test_standalone_dates_used_as_fallback(self):
+        """Standalone date text outside tables IS used when no table-row dates exist."""
         records = parse_tables(_TABLE_STANDALONE_DATES)
         self.assertEqual(len(records), 1)
         rec = records[0]
-        # Standalone dates are more specific and should override Office XML
+        # Standalone dates should be captured as fallback
         self.assertEqual(rec["created"], "02/09/2025 09:23:45 PM UTC")
         self.assertEqual(rec["modified"], "03/23/2026 06:05:49 PM UTC")
 
-    def test_no_fallback_when_no_office_xml_dates(self):
+    def test_table_row_date_takes_priority_over_standalone(self):
+        """Table-row dates win over standalone dates when both are present."""
+        html = """
+        <html><body>
+        Created: 01/01/2000 00:00:00 AM UTC
+        Updated: 01/01/2000 00:00:00 AM UTC
+        <table>
+          <tr><td>Legacy ID</td><td>REQ-010</td></tr>
+          <tr><td>Name</td><td>Priority test</td></tr>
+          <tr><td>Description</td><td>Text</td></tr>
+          <tr><td>Created</td><td>02/09/2025 09:23:45 PM UTC</td></tr>
+        </table>
+        </body></html>
+        """
+        records = parse_tables(html)
+        self.assertEqual(len(records), 1)
+        rec = records[0]
+        # Table row date must win over the standalone fallback
+        self.assertEqual(rec["created"], "02/09/2025 09:23:45 PM UTC")
+
+    def test_standalone_fills_missing_field_when_table_has_partial_dates(self):
+        """Standalone fills the missing field even when the table supplies the other."""
+        html = """
+        <html><body>
+        Created: 01/01/2000 00:00:00 AM UTC
+        Updated: 05/05/2025 08:00:00 AM UTC
+        <table>
+          <tr><td>Legacy ID</td><td>REQ-011</td></tr>
+          <tr><td>Name</td><td>Partial date test</td></tr>
+          <tr><td>Description</td><td>Text</td></tr>
+          <tr><td>Created</td><td>02/09/2025 09:23:45 PM UTC</td></tr>
+        </table>
+        </body></html>
+        """
+        records = parse_tables(html)
+        self.assertEqual(len(records), 1)
+        rec = records[0]
+        # Table row date for 'created' must win
+        self.assertEqual(rec["created"], "02/09/2025 09:23:45 PM UTC")
+        # 'modified' was not in the table, so standalone fallback must apply
+        self.assertEqual(rec["modified"], "05/05/2025 08:00:00 AM UTC")
+
+    def test_no_dates_when_table_has_no_date_rows_and_no_standalone(self):
+        """When a requirement table has no date rows and no standalone dates, fields are absent."""
         html = """
         <html><body>
         <table>
@@ -232,6 +281,93 @@ class TestParseTablesFallbackDates(unittest.TestCase):
         rec = records[0]
         self.assertNotIn("created", rec)
         self.assertNotIn("modified", rec)
+
+    def test_layout_table_between_dates_and_requirement_table(self):
+        """Backward scan finds standalone dates even when a layout table intervenes."""
+        html = """
+        <html><body>
+        Created: 02/09/2025 09:23:45 PM UTC  Updated: 03/23/2026 06:05:49 PM UTC
+        <table>
+          <tr><td>Section Header</td></tr>
+        </table>
+        <table>
+          <tr><td>Legacy ID</td><td>SYS-010</td></tr>
+          <tr><td>Name</td><td>Req with layout table in between</td></tr>
+          <tr><td>Description</td><td>The system shall do Z</td></tr>
+        </table>
+        </body></html>
+        """
+        records = parse_tables(html)
+        self.assertEqual(len(records), 1)
+        rec = records[0]
+        self.assertEqual(rec.get("legacy_id"), "SYS-010")
+        # Despite the intervening layout table, backward scan should find dates
+        self.assertEqual(rec["created"], "02/09/2025 09:23:45 PM UTC")
+        self.assertEqual(rec["modified"], "03/23/2026 06:05:49 PM UTC")
+
+    def test_backward_scan_does_not_cross_previous_requirement_table(self):
+        """Backward scan stops at the previous requirement table's boundary."""
+        html = """
+        <html><body>
+        Created: 01/01/2020 12:00:00 AM UTC  Updated: 01/01/2020 12:00:00 AM UTC
+        <table>
+          <tr><td>Legacy ID</td><td>SYS-020</td></tr>
+          <tr><td>Name</td><td>First requirement</td></tr>
+          <tr><td>Description</td><td>Text</td></tr>
+        </table>
+        <table>
+          <tr><td>Section Header</td></tr>
+        </table>
+        <table>
+          <tr><td>Legacy ID</td><td>SYS-021</td></tr>
+          <tr><td>Name</td><td>Second requirement, no dates of its own</td></tr>
+          <tr><td>Description</td><td>Text</td></tr>
+        </table>
+        </body></html>
+        """
+        records = parse_tables(html)
+        self.assertEqual(len(records), 2)
+        rec1 = next(r for r in records if r.get("legacy_id") == "SYS-020")
+        rec2 = next(r for r in records if r.get("legacy_id") == "SYS-021")
+        # First requirement gets the standalone dates
+        self.assertEqual(rec1["created"], "01/01/2020 12:00:00 AM UTC")
+        self.assertEqual(rec1["modified"], "01/01/2020 12:00:00 AM UTC")
+        # Second requirement has no dates after the first requirement's table;
+        # the backward scan must not cross the first requirement boundary
+        self.assertNotIn("created", rec2)
+        self.assertNotIn("modified", rec2)
+
+    def test_multiple_requirements_each_get_their_own_dates(self):
+        """Different requirement tables each get the standalone dates from their own preceding text."""
+        html = """
+        <html><body>
+        Created: 02/09/2025 09:23:45 PM UTC  Updated: 03/23/2026 06:05:49 PM UTC
+        <table>
+          <tr><td>Legacy ID</td><td>SYS-001</td></tr>
+          <tr><td>Name</td><td>System Requirement 1</td></tr>
+          <tr><td>Description</td><td>The system shall do X</td></tr>
+        </table>
+        Created: 03/15/2025 10:30:00 AM UTC  Updated: 03/25/2026 02:15:30 PM UTC
+        <table>
+          <tr><td>Legacy ID</td><td>SYS-002</td></tr>
+          <tr><td>Name</td><td>System Requirement 2</td></tr>
+          <tr><td>Description</td><td>The system shall do Y</td></tr>
+        </table>
+        </body></html>
+        """
+        records = parse_tables(html)
+        self.assertEqual(len(records), 2)
+        # First requirement
+        rec1 = next(r for r in records if r.get("legacy_id") == "SYS-001")
+        self.assertEqual(rec1["created"], "02/09/2025 09:23:45 PM UTC")
+        self.assertEqual(rec1["modified"], "03/23/2026 06:05:49 PM UTC")
+        # Second requirement — different timestamps
+        rec2 = next(r for r in records if r.get("legacy_id") == "SYS-002")
+        self.assertEqual(rec2["created"], "03/15/2025 10:30:00 AM UTC")
+        self.assertEqual(rec2["modified"], "03/25/2026 02:15:30 PM UTC")
+        # Dates must differ between the two records
+        self.assertNotEqual(rec1["created"], rec2["created"])
+        self.assertNotEqual(rec1["modified"], rec2["modified"])
 
 
 if __name__ == "__main__":
