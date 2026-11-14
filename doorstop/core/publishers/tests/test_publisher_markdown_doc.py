@@ -35,9 +35,7 @@ class TestPublisherFullDocument(MockDataMixIn, unittest.TestCase):
     TUT.md
     assets/
         logo-black-white.png
-""".format(
-            n=self.hex
-        )
+""".format(n=self.hex)
 
     @classmethod
     def tearDownClass(cls):
@@ -58,9 +56,7 @@ class TestPublisherFullDocument(MockDataMixIn, unittest.TestCase):
         """Verify that single document export to path works."""
         expected_walk = """{n}/
     REQ.md
-""".format(
-            n=self.hex
-        )
+""".format(n=self.hex)
         dirpath = self.dirpath
         doc = MockDocument(dirpath)
         # Act

@@ -95,7 +95,9 @@ def publish(
         publisher.create_index(path, tree=obj if is_tree(obj) else None)
 
     # Create traceability matrix
-    if (publisher.getIndex() or ext == ".tex" or ext == ".md") and (publisher.getMatrix()):
+    if (publisher.getIndex() or ext == ".tex" or ext == ".md") and (
+        publisher.getMatrix()
+    ):
         publisher.create_matrix(path)
 
     # Run all concluding operations.

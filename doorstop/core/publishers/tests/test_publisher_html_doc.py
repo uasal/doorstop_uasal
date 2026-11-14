@@ -39,9 +39,7 @@ class TestPublisherFullDocument(MockDataMixIn, unittest.TestCase):
         REQ.html
         TUT.html
         assets/
-            logo-black-white.png{w}""".format(
-            n=self.hex, w=HTML_TEMPLATE_WALK
-        )
+            logo-black-white.png{w}""".format(n=self.hex, w=HTML_TEMPLATE_WALK)
 
     @classmethod
     def tearDownClass(cls):

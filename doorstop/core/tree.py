@@ -192,7 +192,15 @@ class Tree(BaseValidatable):  # pylint: disable=R0902
 
     # decorators are applied to methods in the associated classes
     def create_document(
-        self, path, value, sep=None, digits=None, parent=None, itemformat=None, attributes_publish=None, extended_reviewed=None
+        self,
+        path,
+        value,
+        sep=None,
+        digits=None,
+        parent=None,
+        itemformat=None,
+        attributes_publish=None,
+        extended_reviewed=None,
     ):  # pylint: disable=R0913
         """Create a new document and add it to the tree.
 

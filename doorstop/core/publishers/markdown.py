@@ -1,15 +1,17 @@
 # SPDX-License-Identifier: LGPL-3.0-only
 
 """Functions to publish documents and items."""
+
 import os
 from re import sub
 
 from doorstop import common, settings
 from doorstop.core.publishers.base import BasePublisher, format_level
-from doorstop.core.types import is_item, iter_items, UID
 from doorstop.core.template import MATRIX
+from doorstop.core.types import UID, is_item, iter_items
 
 log = common.logger(__name__)
+
 
 class MarkdownPublisher(BasePublisher):
     """Markdown publisher."""
@@ -61,12 +63,10 @@ class MarkdownPublisher(BasePublisher):
     #     for item in iter_items(obj):
     #         if item.
 
-
-
     def lines_matrix(self, **kwargs):
         """Traceability table for markdown output."""
         # title
-        title = '# Traceability Matrix'
+        title = "# Traceability Matrix"
         yield title
         # header
         table_format = "| ------------ |"
@@ -249,10 +249,14 @@ class MarkdownPublisher(BasePublisher):
         else:
             uid = item.uid
             if settings.ENABLE_HEADERS:
-                #<span class="anchor" id="L3-0024-Payload Metrology"></span><div id="L3-0024-Payload Metrology"></div>
+                # <span class="anchor" id="L3-0024-Payload Metrology"></span><div id="L3-0024-Payload Metrology"></div>
                 if to_html:
-                    header = "{u}-<small><i>{s}</i></small>".format(u=item.uid, s=item.short_name)
-                    span = "<span class='anchor' id='{u}-{s}'></span><div id='{u}-{s}'></div>".format(u=item.uid, s=item.short_name)
+                    header = "{u}-<small><i>{s}</i></small>".format(
+                        u=item.uid, s=item.short_name
+                    )
+                    span = "<span class='anchor' id='{u}-{s}'></span><div id='{u}-{s}'></div>".format(
+                        u=item.uid, s=item.short_name
+                    )
                     uid = span + header
                 else:
                     uid = "{u}- _{s}_".format(u=item.uid, s=item.short_name)
@@ -265,8 +269,8 @@ class MarkdownPublisher(BasePublisher):
             else:
                 standard = "{h} {u}".format(h=heading, u=uid)
 
-            #attr_list = self.format_attr_list(item, True)
-            result = standard #+ attr_list
+            # attr_list = self.format_attr_list(item, True)
+            result = standard  # + attr_list
         return result
 
     def _lines_markdown(self, obj, **kwargs):
@@ -303,7 +307,6 @@ class MarkdownPublisher(BasePublisher):
                     yield "# *Level- " + level + "*\n"
                 yield "------------------------------------------------------------------------\n"
 
-
             # Creating subsections for each document based on adjusted levels
             if len(split_uid) == 4:
                 found_prefix = str(split_uid[0])
@@ -312,11 +315,10 @@ class MarkdownPublisher(BasePublisher):
                 if category != prev_category:
                     prev_category = category
                     prev_subcategory = sub_category
-                    yield "## *" + category +"- " + sub_category + "*\n"
+                    yield "## *" + category + "- " + sub_category + "*\n"
                 elif sub_category != prev_subcategory:
                     prev_subcategory = sub_category
-                    yield "## *" + category +"- " + sub_category + "*\n"
-
+                    yield "## *" + category + "- " + sub_category + "*\n"
 
             # Create item heading.
             complete_heading = self._generate_heading_from_item(item, to_html=to_html)
@@ -334,7 +336,9 @@ class MarkdownPublisher(BasePublisher):
                     if not item.attribute(attr) or item.attribute(attr) == "":
                         continue
                     else:
-                        yield "**" + attr.capitalize() + ":** " + item.attribute(attr) + "\n"
+                        yield "**" + attr.capitalize() + ":** " + item.attribute(
+                            attr
+                        ) + "\n"
 
             # Ref (old version)
             if item.ref:
@@ -353,7 +357,7 @@ class MarkdownPublisher(BasePublisher):
                     links = self.format_links(items1, linkify)
                     label_links = self.format_label_links(label, links, linkify)
                     yield label_links + "\n"
-                    
+
             # Child Links
             if settings.PUBLISH_CHILD_LINKS:
                 items2 = item.find_child_items()
@@ -378,7 +382,7 @@ class MarkdownPublisher(BasePublisher):
             #     yield ""
 
             item_count = item_count + 1  # item counter
-            yield "--------------------------------\n" # break between items
+            yield "--------------------------------\n"  # break between items
 
 
 def clean_link(uid):

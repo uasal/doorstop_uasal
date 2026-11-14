@@ -313,6 +313,7 @@ class Text(str):
         else:
             return ""
 
+
 class Original_Level:
     """ """
 
