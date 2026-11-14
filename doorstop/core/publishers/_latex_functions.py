@@ -47,9 +47,9 @@ def _latex_convert(line):
     # Replace *.
     line = re.sub("\\*(.*?)\\*", "\\\\textit{\\1}", line)
     # Replace math symbols with $_ instead for latex processing.
-    #line = line.replace(">", "$>").replace("<", "$<").replace("^", "$^").replace("_", "\_")
+    # line = line.replace(">", "$>").replace("<", "$<").replace("^", "$^").replace("_", "\_")
     # Replace _. ### **This creates an issue with the beamer for latex for urls.**
-    #line = re.sub(r"_(?<!\\_)(.*?)_(?<!\\_)", "\\\\textit{\\1}", line)
+    # line = re.sub(r"_(?<!\\_)(.*?)_(?<!\\_)", "\\\\textit{\\1}", line)
     # Replace ~~.
     line = re.sub("~~(.*?)~~", "\\\\sout{\\1}", line)
     #############################

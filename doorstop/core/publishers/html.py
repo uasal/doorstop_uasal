@@ -316,7 +316,7 @@ class HtmlPublisher(MarkdownPublisher):
                 next_line = ""
             else:
                 next_line = body_to_check[i + 1]
-            (_, processed_block, processed_line) = self.process_lists(line, next_line)
+            _, processed_block, processed_line = self.process_lists(line, next_line)
             if processed_block != "":
                 block.append(processed_block)
             block.append(processed_line)
@@ -339,7 +339,7 @@ class HtmlPublisher(MarkdownPublisher):
                 doc_attributes,
                 toc=toc_html,
                 parent=obj.parent,
-                child = obj.children,
+                child=obj.children,
                 document=obj,
                 is_doc=True,
                 has_index=self.getIndex(),
@@ -363,14 +363,14 @@ class HtmlPublisher(MarkdownPublisher):
             elif item.header:
                 heading = "{h}".format(h=item.header)
             else:
-                heading = "{u}-{s}".format(u=item.uid,s=item.short_name)
+                heading = "{u}-{s}".format(u=item.uid, s=item.short_name)
             if settings.PUBLISH_HEADING_LEVELS:
                 level = format_level(item.level)
                 lbl = "{lev} {h}".format(lev=level, h=heading)
             else:
                 lbl = heading
             if linkify:
-                uid = "{u}-{s}".format(u=item.uid,s=item.short_name)
+                uid = "{u}-{s}".format(u=item.uid, s=item.short_name)
             else:
                 uid = ""
             toc.append({"depth": item.depth, "text": lbl, "uid": uid})

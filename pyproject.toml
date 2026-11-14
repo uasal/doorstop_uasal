@@ -32,8 +32,6 @@ classifiers = [
     "Operating System :: OS Independent",
     "Programming Language :: Python",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.8",
-    "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
@@ -44,8 +42,8 @@ classifiers = [
 
 [tool.poetry.dependencies]
 
-python = "^3.8.10"
-setuptools = "^69.0.0"
+python = "^3.10"
+setuptools = ">=78.1.1"
 pyyaml = "^6.0"
 markdown = "^3.3.3"
 bottle = "~0.12.25"
@@ -59,7 +57,7 @@ openpyxl = ">=3.1.2"
 [tool.poetry.dev-dependencies]
 
 # Formatters
-black = "^23.1"
+black = ">=26.10.1"
 isort = "^5.12"
 
 # Linters
@@ -87,7 +85,7 @@ mkdocs = "^1.5"
 pygments = "*"
 
 # Tooling
-pyinstaller = "*"
+pyinstaller = { version = ">=6.0.0", python = "<3.16" }
 sniffer = "*"
 macfsevents = { version = "*", platform = "darwin" }
 pync = { version = "*", platform = "darwin" }

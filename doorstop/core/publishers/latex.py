@@ -19,8 +19,8 @@ from doorstop.core.publishers._latex_functions import (
 from doorstop.core.publishers.base import (
     BasePublisher,
     extract_prefix,
-    get_document_attributes,
     format_level,
+    get_document_attributes,
 )
 from doorstop.core.template import check_latex_template_data, read_template_data
 from doorstop.core.types import is_item, iter_documents, iter_items
@@ -162,7 +162,9 @@ class LaTeXPublisher(BasePublisher):
                             h=_latex_convert(item.header), u=item.uid
                         )
                     else:
-                        short_name = "\\small\\textit{{{s}}}".format(s=_latex_convert(item.short_name))
+                        short_name = "\\small\\textit{{{s}}}".format(
+                            s=_latex_convert(item.short_name)
+                        )
                         uid = "{{{u}- }}{s}".format(u=item.uid, s=short_name)
 
                 # Level and UID
@@ -204,12 +206,12 @@ class LaTeXPublisher(BasePublisher):
 
                 # Reference
                 if item.ref:
-                    #yield ""  # break before reference
+                    # yield ""  # break before reference
                     yield self.format_ref(item)
 
                 # Reference
                 if item.references:
-                    #yield ""  # break before reference
+                    # yield ""  # break before reference
                     yield self.format_references(item)
 
             # Parent Links
@@ -220,7 +222,7 @@ class LaTeXPublisher(BasePublisher):
                     links = self.format_links(items1, linkify)
                     label_links = self.format_label_links(label, links, linkify)
                     yield label_links + "\n"
-                    
+
             # Child Links
             if settings.PUBLISH_CHILD_LINKS:
                 items2 = item.find_child_items()
@@ -229,7 +231,7 @@ class LaTeXPublisher(BasePublisher):
                     links = self.format_links(items2, linkify)
                     label_links = self.format_label_links(label, links, linkify)
                     yield label_links + "\n"
-                    
+
                 # Original version
                 # if item.document and item.document.publish:
                 #     header_printed = False
@@ -363,30 +365,39 @@ class LaTeXPublisher(BasePublisher):
             if "](" in output_line:
                 link_present = True
                 # Check if there are text that is using brackets but not a href reference
-                # TODO: adjust this def to be more flexible 
+                # TODO: adjust this def to be more flexible
                 while "](" in output_line:
-                    split_0 = output_line.split("](",1)
-                    split_1 = str(split_0[0]).split("[",1)
-                    prefix_href = (str(split_1[1])).replace("_","\\_")
-                    begin_text = (str(split_1[0])).replace("_","\\_")
-                    split_2 = (str(split_0[1])).split(")",1)
+                    split_0 = output_line.split("](", 1)
+                    split_1 = str(split_0[0]).split("[", 1)
+                    prefix_href = (str(split_1[1])).replace("_", "\\_")
+                    begin_text = (str(split_1[0])).replace("_", "\\_")
+                    split_2 = (str(split_0[1])).split(")", 1)
                     url_href = str(split_2[0])
                     end_text = str(split_2[1])
-                    end_text = end_text.replace("_","\\_")
+                    end_text = end_text.replace("_", "\\_")
                     href = "\\href{" + url_href + "}{" + prefix_href + "}"
                     output_line = begin_text + href + end_text
             if "<br>" in output_line:
-                output_line = output_line.replace("<br> <br>", "\\par ").replace("<br><br>", "\\par ").replace("<br>", "\\par")
+                output_line = (
+                    output_line.replace("<br> <br>", "\\par ")
+                    .replace("<br><br>", "\\par ")
+                    .replace("<br>", "\\par")
+                )
                 if link_present == True:
                     yield output_line.replace("^", "\\^").replace("%", "\\%")
                 else:
-                    yield output_line.replace("^", "\\^").replace("_", "\\_").replace("%", "\\%")
+                    yield output_line.replace("^", "\\^").replace("_", "\\_").replace(
+                        "%", "\\%"
+                    )
             elif link_present == False:
-                output_line = output_line.replace("^", "\\^").replace("_", "\\_").replace("%", "\\%")
+                output_line = (
+                    output_line.replace("^", "\\^")
+                    .replace("_", "\\_")
+                    .replace("%", "\\%")
+                )
                 yield output_line
             else:
                 yield output_line.replace("^", "\\^").replace("%", "\\%")
-
 
     def _format_latex_text(self, text):
         """Fix all general text formatting to use LaTeX-macros."""
@@ -549,7 +560,7 @@ class LaTeXPublisher(BasePublisher):
                 next_line = ""
             else:
                 next_line = text[i + 1]
-            (no_paragraph, processed_block, line) = self.process_lists(line, next_line)
+            no_paragraph, processed_block, line = self.process_lists(line, next_line)
             if processed_block != "":
                 block.append(processed_block)
             #############################
@@ -651,23 +662,25 @@ class LaTeXPublisher(BasePublisher):
         traceability.append(
             "\\caption{Traceability matrix.}\\label{tbl:trace}\\zlabel{tbl:trace}\\\\"
         )
-        #traceability.append(self.HLINE)
+        # traceability.append(self.HLINE)
         traceability.append(table_head)
-        #traceability.append(self.HLINE)
+        # traceability.append(self.HLINE)
         traceability.append("\\endfirsthead")
-        traceability.append("\\caption{\\textit{(Continued)} Traceability matrix.}\\\\ \\hline")
-        #traceability.append(self.HLINE)
+        traceability.append(
+            "\\caption{\\textit{(Continued)} Traceability matrix.}\\\\ \\hline"
+        )
+        # traceability.append(self.HLINE)
         traceability.append(table_head)
-        #traceability.append(self.HLINE)
+        # traceability.append(self.HLINE)
         traceability.append("\\endhead")
-        #traceability.append(self.HLINE)
+        # traceability.append(self.HLINE)
         traceability.append(
             "\\multicolumn{{{n}}}{{r}}{{\\textit{{Continued on next page.}}}}\\\\".format(
                 n=count
             )
         )
         traceability.append("\\endfoot")
-        #traceability.append(self.HLINE)
+        # traceability.append(self.HLINE)
         traceability.append("\\endlastfoot")
         # Add rows.
         for row in table:
@@ -681,7 +694,7 @@ class LaTeXPublisher(BasePublisher):
                     row_text = row_text + " "
             row_text = row_text + "\\\\ \\hline"
             traceability.append(row_text)
-            #traceability.append(self.HLINE)
+            # traceability.append(self.HLINE)
         # End the table.
         traceability.append(self.END_LONGTABLE)
         common.write_lines(traceability, file, end=settings.WRITE_LINESEPERATOR)
@@ -704,7 +717,7 @@ class LaTeXPublisher(BasePublisher):
             log.warning(
                 "LaTeX export does not support custom file names. Change in .doorstop.yml instead."
             )
-        #tail = doc_attributes["name"] + ".tex"
+        # tail = doc_attributes["name"] + ".tex"
         tail = "Requirements.tex"
         self.documentPath = os.path.join(head, extract_prefix(self.document) + ".tex")
         wrapperPath = os.path.join(head, tail)
@@ -760,9 +773,9 @@ class LaTeXPublisher(BasePublisher):
                 t=_latex_convert(extract_prefix(self.document))
             )
         )
-        #wrapper.append(
+        # wrapper.append(
         #    "\\def\\doctitle{{{n}}}".format(n=_latex_convert(doc_attributes["title"]))
-        #)
+        # )
         wrapper.append(
             "\\def\\docref{{{n}}}".format(n=_latex_convert(doc_attributes["ref"]))
         )
@@ -865,9 +878,7 @@ class LaTeXPublisher(BasePublisher):
             # Check for defined document attributes.
             external_doc_attributes = extract_prefix(external)
             info_text_set = True
-            wrapper.append(
-                "\\input{{{n}.tex}}".format(n=external_doc_attributes)
-            )
+            wrapper.append("\\input{{{n}.tex}}".format(n=external_doc_attributes))
             wrapper.append("\\newpage")
 
         if info_text_set:
@@ -887,7 +898,11 @@ class LaTeXPublisher(BasePublisher):
                 wrapper.append(label_line)
                 wrapper.append("\\begin{figure}[ht!]")
                 wrapper.append("\\begin{center}")
-                wrapper.append("\\includegraphics[angle=90, height=20cm, width=\\textwidth]{" + graphics + "}")
+                wrapper.append(
+                    "\\includegraphics[angle=90, height=20cm, width=\\textwidth]{"
+                    + graphics
+                    + "}"
+                )
                 wrapper.append("\\end{center}")
                 wrapper.append("\\end{figure}")
                 wrapper.append("\\newpage")
@@ -896,13 +911,15 @@ class LaTeXPublisher(BasePublisher):
             )
         else:
             wrapper = _add_comment(
-                wrapper, "No graphics information in template to be added to published document. Skipping..."
+                wrapper,
+                "No graphics information in template to be added to published document. Skipping...",
             )
         wrapper.append("")
 
         if graphics_present:
             wrapper = _add_comment(
-                wrapper, "No empty page needed before traceability matrix / graphics present."
+                wrapper,
+                "No empty page needed before traceability matrix / graphics present.",
             )
             wrapper.append("")
         else:
@@ -924,7 +941,10 @@ class LaTeXPublisher(BasePublisher):
             wrapper.append("\\newpage")
             wrapper.append("")
         else:
-            wrapper = _add_comment(wrapper, "Traceability matrix import setting turned off in doorstop.yml. Skipping...")
+            wrapper = _add_comment(
+                wrapper,
+                "Traceability matrix import setting turned off in doorstop.yml. Skipping...",
+            )
             wrapper.append("")
 
         # Include rvm if setting is true
@@ -932,16 +952,24 @@ class LaTeXPublisher(BasePublisher):
             wrapper = _add_comment(wrapper, "Add rvm matrix.")
             wrapper.append("\\begin{landscape}")
             wrapper.append("\\section{Requirements Verification Matrix}")
-            wrapper.append("\\csvreader[longtable=LLLLLL,table head=\\caption{Requirement Verification Matrix}\\\\")
-            wrapper.append("\\toprule\\bfseries UID & \\bfseries Name & \\bfseries Method & \\bfseries Verification Plan & \\bfseries Status \\\ \\midrule\\endhead")
+            wrapper.append(
+                "\\csvreader[longtable=LLLLLL,table head=\\caption{Requirement Verification Matrix}\\\\"
+            )
+            wrapper.append(
+                "\\toprule\\bfseries UID & \\bfseries Name & \\bfseries Method & \\bfseries Verification Plan & \\bfseries Status \\\ \\midrule\\endhead"
+            )
             wrapper.append("\\bottomrule\\endfoot,")
             wrapper.append("late after line=\\\,")
-            wrapper.append("]{rvm.csv}{}{\\csvcoli & \\csvcolii & \\csvcoliii & \\csvcoliv & \\csvcolv }")
+            wrapper.append(
+                "]{rvm.csv}{}{\\csvcoli & \\csvcolii & \\csvcoliii & \\csvcoliv & \\csvcolv }"
+            )
             wrapper.append("\\end{landscape}")
             wrapper = _add_comment(wrapper, "END rvm.")
             wrapper.append("")
         else:
-            wrapper = _add_comment(wrapper, "RVM import setting turned off in doorstop.yml. Skipping...")
+            wrapper = _add_comment(
+                wrapper, "RVM import setting turned off in doorstop.yml. Skipping..."
+            )
             wrapper.append("")
 
         # End the document command to be added

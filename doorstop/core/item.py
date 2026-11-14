@@ -121,7 +121,6 @@ class Item(BaseFileObject):  # pylint: disable=R0902
     DEFAULT_VERIFICATION_STATUS = Text()
     DEFAULT_REQTYPE = Text()
 
-
     def __init__(self, document, path, root=os.getcwd(), **kwargs):
         """Initialize an item from an existing file.
 
@@ -156,19 +155,19 @@ class Item(BaseFileObject):  # pylint: disable=R0902
         self._data["normative"] = Item.DEFAULT_NORMATIVE  # type: ignore
         self._data["derived"] = Item.DEFAULT_DERIVED  # type: ignore
         self._data["reviewed"] = Item.DEFAULT_REVIEWED  # type: ignore
-        self._data["short name"] = Item.DEFAULT_SHORT_NAME # type: ignore
-        self._data["rationale"] = Item.DEFAULT_RATIONALE # type: ignore
+        self._data["short name"] = Item.DEFAULT_SHORT_NAME  # type: ignore
+        self._data["rationale"] = Item.DEFAULT_RATIONALE  # type: ignore
         self._data["text"] = Item.DEFAULT_TEXT
         self._data["notes"] = Item.DEFAULT_NOTES
         self._data["ref"] = Item.DEFAULT_REF
-        self._data["verification methods"] = Item.DEFAULT_VERIFICATION_METHODS # type: ignore
-        self._data["verification plan"] = Item.DEFAULT_VERIFICATION_PLAN # type: ignore
-        self._data["verification status"] = Item.DEFAULT_VERIFICATION_STATUS # type: ignore
-        self._data["k/d"] = Item.DEFAULT_REQTYPE # type: ignore
-        self._data["category"] = Item.DEFAULT_CATEGORY # type: ignore
-        self._data["phase"] = Item.DEFAULT_PHASE # type: ignore
-        self._data["status"] = Item.DEFAULT_STATUS # type: ignore
-        self._data["artifact"] = Item.DEFAULT_ARTIFACT # type: ignore
+        self._data["verification methods"] = Item.DEFAULT_VERIFICATION_METHODS  # type: ignore
+        self._data["verification plan"] = Item.DEFAULT_VERIFICATION_PLAN  # type: ignore
+        self._data["verification status"] = Item.DEFAULT_VERIFICATION_STATUS  # type: ignore
+        self._data["k/d"] = Item.DEFAULT_REQTYPE  # type: ignore
+        self._data["category"] = Item.DEFAULT_CATEGORY  # type: ignore
+        self._data["phase"] = Item.DEFAULT_PHASE  # type: ignore
+        self._data["status"] = Item.DEFAULT_STATUS  # type: ignore
+        self._data["artifact"] = Item.DEFAULT_ARTIFACT  # type: ignore
         self._data["references"] = None  # type: ignore
         self._data["links"] = set()  # type: ignore
         if settings.ENABLE_HEADERS:
@@ -426,7 +425,7 @@ class Item(BaseFileObject):  # pylint: disable=R0902
             elif key == "artifact":
                 value = value.yaml  # type: ignore
             elif key == "rationale":
-                value = value.yaml  # type: ignore                
+                value = value.yaml  # type: ignore
             elif key == "verification methods" or key == "verification method":
                 value = _convert_to_yaml(0, len(key) + 2, value)  # type: ignore
             elif key == "key/driving" or key == "k/d":

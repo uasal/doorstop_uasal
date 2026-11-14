@@ -90,9 +90,6 @@ I.e., only one of the documents in the tree should have a template folder."""
         template_assets = os.sep.join([template_assets, "html"])
         builtin_template = HTMLTEMPLATE
 
-
-
-
     # Remove existing templates and assets first.
     if os.path.isdir(assets_dir):
         log.info("Deleting contents of assets directory %s", assets_dir)

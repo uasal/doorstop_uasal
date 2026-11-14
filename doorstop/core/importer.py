@@ -24,7 +24,6 @@ _documents = []  # cache of unplaced documents
 log = common.logger(__name__)
 
 
-
 def import_file(path, document, ext=None, mapping=None, **kwargs):
     """Import items from an exported file.
 
@@ -262,7 +261,11 @@ def _itemize(header, data, document, mapping=None):
                 # Checks for duplicate UID's that were already entered from the same csv file.
                 if len(prev_uid) != len(set(prev_uid)):
                     log.warning(" Duplicate UID in csv found: '" + str(uid) + "'.")
-                    print("DOORSTOP WARNING: Duplicate UID in csv found: '" + str(uid) + "'.")
+                    print(
+                        "DOORSTOP WARNING: Duplicate UID in csv found: '"
+                        + str(uid)
+                        + "'."
+                    )
                     prev_uid = list(set(prev_uid))
 
             elif key == "links":
@@ -303,7 +306,7 @@ def _itemize(header, data, document, mapping=None):
         if uid and uid != settings.PLACEHOLDER:
             try:
                 item = document.find_item(uid)
-                print("Updating entry for ("+ uid + ")...")
+                print("Updating entry for (" + uid + ")...")
             except DoorstopError:
                 log.debug("not yet an item: {}".format(uid))
             else:
